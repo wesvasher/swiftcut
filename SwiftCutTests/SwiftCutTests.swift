@@ -654,7 +654,8 @@ struct EnhanceTests {
         return job
     }
 
-    @Test func reduceNoiseLowersNoiseAndKeepsBrightness() async throws {
+    @Test(.enabled(if: Enhancer.canReduceNoise, "Needs Apple's noise filter, which this Mac doesn't support"))
+    func reduceNoiseLowersNoiseAndKeepsBrightness() async throws {
         #expect(Enhancer.canReduceNoise)
         let dir = try TestVideo.tempDirectory()
         let source = try await Self.noisyClip(in: dir)
@@ -673,7 +674,8 @@ struct EnhanceTests {
         #expect(abs(duration - 2) < 0.1)
     }
 
-    @Test func allEffectsTogetherDoubleSizeAndFrameRate() async throws {
+    @Test(.enabled(if: Enhancer.canReduceNoise, "Needs Apple's noise filter, which this Mac doesn't support"))
+    func allEffectsTogetherDoubleSizeAndFrameRate() async throws {
         let display = CGSize(width: 640, height: 480)
         try #require(Enhancer.canUpscale(.fast, displaySize: display))
         let dir = try TestVideo.tempDirectory()
@@ -712,12 +714,18 @@ struct EnhanceTests {
         let dir = try TestVideo.tempDirectory()
         let source = try await Self.noisyClip(in: dir, seconds: 1)
         let ready = Enhancer.bestScalerConfiguration(width: 640, height: 480)?.configurationModelStatus == .ready
-        let job = try await Self.export(source, EnhanceSettings(upscale: .best), to: dir, name: "best")
         if ready {
+            let job = try await Self.export(source, EnhanceSettings(upscale: .best), to: dir, name: "best")
             #expect(job.state == .finished)
             #expect(try await Self.stats(job.outputURL, at: 0.5).size == CGSize(width: 2560, height: 1920))
         } else {
-            guard case .failed = job.state else { Issue.record("Expected a clear failure without the model"); return }
+            // Without the model, the export is refused up front with a message saying to download it.
+            do {
+                let job = try await Self.export(source, EnhanceSettings(upscale: .best), to: dir, name: "best")
+                Issue.record("Expected a clear failure without the model, got \(job.state)")
+            } catch let error as EnhanceError {
+                guard case .modelNotReady = error else { Issue.record("Unexpected error: \(error)"); return }
+            }
         }
     }
 }
@@ -849,7 +857,8 @@ struct EffectsSetTests {
 }
 
 struct NoFlashTests {
-    @Test func switchingShowsAStillFrameUntilReady() async throws {
+    @Test(.enabled(if: Enhancer.canReduceNoise, "Needs Apple's noise filter, which this Mac doesn't support"))
+    func switchingShowsAStillFrameUntilReady() async throws {
         let dir = try TestVideo.tempDirectory()
         let url = try await EnhanceTests.noisyClip(in: dir, seconds: 2)
         let clip = Clip(url: url)
