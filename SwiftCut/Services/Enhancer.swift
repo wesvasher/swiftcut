@@ -406,7 +406,10 @@ nonisolated final class EnhancePipeline {
     private var previousScalerSource: VTFrameProcessorFrame?
     private var previousScalerOutput: VTFrameProcessorFrame?
 
-    private var sharpenPool: CVPixelBufferPool?
+    /// Where `finish` copies the picture before Core Image reads it. One buffer, reused for every
+    /// frame, not a pool: Core Image keeps pool buffers marked in use after reading them, so a pool
+    /// never gets them back and makes a new one for every frame (gigabytes in a long export).
+    private var scratch: CVPixelBuffer?
     private lazy var ciContext = CIContext(options: [.cacheIntermediates: false])
 
     init(instruction: EnhanceInstruction) throws {
@@ -601,10 +604,11 @@ nonisolated final class EnhancePipeline {
 
     /// Color LUT, grade, sharpening, then the scale and position, with Core Image.
     private func finish(_ picture: CVPixelBuffer, into output: CVPixelBuffer) throws {
-        if sharpenPool == nil {
-            sharpenPool = try Self.pool(width: CVPixelBufferGetWidth(output), height: CVPixelBufferGetHeight(output), format: kCVPixelFormatType_32BGRA)
+        if scratch == nil {
+            scratch = try Self.buffer(from: Self.pool(width: CVPixelBufferGetWidth(output), height: CVPixelBufferGetHeight(output),
+                                                      format: kCVPixelFormatType_32BGRA))
         }
-        let scratch = try Self.buffer(from: sharpenPool)
+        guard let scratch else { throw EnhanceError.failed("Couldn't allocate video memory.") }
         try copy(picture, into: scratch)
 
         let color = CGColorSpace(name: CGColorSpace.sRGB)!
@@ -630,7 +634,15 @@ nonisolated final class EnhancePipeline {
             image = FrameLayoutStage.apply(image.cropped(to: original.extent), layout: live.value,
                                            frame: original.extent, checkerboard: live.showsCheckerboard)
         }
-        ciContext.render(image.cropped(to: original.extent), to: output, bounds: original.extent, colorSpace: color)
+        // Waits for the GPU, so `scratch` is free again for the next frame.
+        try Self.render(image.cropped(to: original.extent), bounds: original.extent, context: ciContext, to: output, colorSpace: color)
+    }
+
+    /// Draws the `bounds` part of `image` into `output` and waits until the GPU has finished with both.
+    static func render(_ image: CIImage, bounds: CGRect, context: CIContext, to output: CVPixelBuffer, colorSpace: CGColorSpace) throws {
+        let destination = CIRenderDestination(pixelBuffer: output)
+        destination.colorSpace = colorSpace
+        try context.startTask(toRender: image, from: bounds, to: destination, at: .zero).waitUntilCompleted()
     }
 
     /// Converts format and scales to fit the destination (this also corrects the picture shape).

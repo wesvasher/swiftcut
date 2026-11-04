@@ -293,8 +293,10 @@ nonisolated final class TimelineCompositor: NSObject, AVVideoCompositing, @unche
     private let queue = DispatchQueue(label: "SwiftCut.Timeline")
     private let context = CIContext(options: [.cacheIntermediates: false])
     private let color = CGColorSpace(name: CGColorSpace.sRGB)!
-    /// Effects pipelines for recently shown segments (they keep state between frames).
-    private var pipelines: [ObjectIdentifier: (pipeline: EnhancePipeline, pool: CVPixelBufferPool)] = [:]
+    /// Effects pipelines for recently shown segments (they keep state between frames), each with
+    /// the buffer its effects draw into. One buffer reused for every frame, not a pool: Core Image
+    /// keeps pool buffers marked in use after reading them, so a pool makes a new one per frame.
+    private var pipelines: [ObjectIdentifier: (pipeline: EnhancePipeline, processed: CVPixelBuffer)] = [:]
     private var recent: [ObjectIdentifier] = []
 
     func renderContextChanged(_ newRenderContext: AVVideoCompositionRenderContext) {}
@@ -320,7 +322,7 @@ nonisolated final class TimelineCompositor: NSObject, AVVideoCompositing, @unche
                 var picture = source
                 if let enhance = instruction.enhance {
                     let entry = try pipeline(for: enhance, size: instruction.pictureSize)
-                    let processed = try Self.buffer(from: entry.pool)
+                    let processed = entry.processed
                     var neighbors: [Int: CVPixelBuffer] = [:]
                     for (offset, track) in enhance.neighborTracks {
                         neighbors[offset] = request.sourceFrame(byTrackID: track)
@@ -336,14 +338,15 @@ nonisolated final class TimelineCompositor: NSObject, AVVideoCompositing, @unche
                                                              outputHeight: instruction.renderSize.height))
                 image = placed.cropped(to: frame).composited(over: image)
             }
-            context.render(image, to: output, bounds: frame, colorSpace: color)
+            // Waits for the GPU, so the effects buffer is free again for the next frame.
+            try EnhancePipeline.render(image, bounds: frame, context: context, to: output, colorSpace: color)
             request.finish(withComposedVideoFrame: output)
         } catch {
             request.finish(with: error)
         }
     }
 
-    private func pipeline(for instruction: EnhanceInstruction, size: CGSize) throws -> (pipeline: EnhancePipeline, pool: CVPixelBufferPool) {
+    private func pipeline(for instruction: EnhanceInstruction, size: CGSize) throws -> (pipeline: EnhancePipeline, processed: CVPixelBuffer) {
         let key = ObjectIdentifier(instruction)
         recent.removeAll { $0 == key }
         recent.append(key)
@@ -360,7 +363,7 @@ nonisolated final class TimelineCompositor: NSObject, AVVideoCompositing, @unche
             kCVPixelBufferIOSurfacePropertiesKey as String: [String: Any](),
         ] as CFDictionary, &pool)
         guard let pool else { throw EnhanceError.failed("Couldn't allocate video memory.") }
-        let entry = (pipeline: try EnhancePipeline(instruction: instruction), pool: pool)
+        let entry = (pipeline: try EnhancePipeline(instruction: instruction), processed: try Self.buffer(from: pool))
         pipelines[key] = entry
         return entry
     }
