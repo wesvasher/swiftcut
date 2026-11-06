@@ -1,6 +1,7 @@
 import CoreMedia
 import CryptoKit
 import Foundation
+import ImageIO
 import UniformTypeIdentifiers
 
 /// Images made into a source video: a numbered sequence (one image per frame), or a single
@@ -91,6 +92,26 @@ nonisolated struct ImageSequence: Codable, Hashable, Sendable {
     /// The Frame Rate menu's choices.
     static let frameRates: [Double] = [1, 2, 5, 8, 10, 12, 12.5, 15, 23.976, 24, 25, 29.97, 30, 48, 50, 59.94, 60, 120]
 
+    /// The frame rate chosen when importing last time, for the next import.
+    static var savedFrameRate: Double {
+        get {
+            let fps = UserDefaults.standard.double(forKey: "imageImportFrameRate")
+            return fps > 0 ? fps : 24
+        }
+        set { UserDefaults.standard.set(newValue, forKey: "imageImportFrameRate") }
+    }
+
+    /// Keeps a typed rate within what SwiftCut can make.
+    static func clampedFrameRate(_ fps: Double) -> Double {
+        min(maxFrameRate, max(minFrameRate, fps))
+    }
+
+    /// Sets the frame rate, as Custom when it isn't one of the menu's choices.
+    mutating func setFrameRate(_ fps: Double) {
+        frameRate = Self.clampedFrameRate(fps)
+        isCustomFrameRate = !Self.frameRates.contains(frameRate)
+    }
+
     static func frameRateTitle(_ fps: Double) -> String {
         let number = fps.formatted(.number.precision(.fractionLength(0...3)))
         switch fps {
@@ -159,14 +180,110 @@ nonisolated struct ImageSequence: Codable, Hashable, Sendable {
 
     /// The images directly inside a folder, in name order with numbers compared as numbers
     /// (frame2 before frame10), the way Finder sorts.
-    static func images(in folder: URL) -> [URL] {
+    static func images(in folder: URL, order: Order = .nameAscending) -> [URL] {
         let files = (try? FileManager.default.contentsOfDirectory(
             at: folder, includingPropertiesForKeys: [.contentTypeKey, .isDirectoryKey], options: [.skipsHiddenFiles])) ?? []
-        return sorted(files.filter(isImage))
+        return sorted(files.filter(isImage), by: order)
     }
 
-    static func sorted(_ urls: [URL]) -> [URL] {
-        urls.sorted { $0.lastPathComponent.localizedStandardCompare($1.lastPathComponent) == .orderedAscending }
+    /// How images are put in order when they're imported.
+    enum Order: String, CaseIterable, Identifiable, Sendable {
+        case nameAscending, nameDescending
+        case createdAscending, createdDescending
+        case modifiedAscending, modifiedDescending
+        case takenAscending, takenDescending
+        case sizeAscending, sizeDescending
+
+        var id: Self { self }
+
+        var title: String {
+            switch self {
+            case .nameAscending: "Name (A to Z)"
+            case .nameDescending: "Name (Z to A)"
+            case .createdAscending: "Date Created (Oldest First)"
+            case .createdDescending: "Date Created (Newest First)"
+            case .modifiedAscending: "Date Modified (Oldest First)"
+            case .modifiedDescending: "Date Modified (Newest First)"
+            case .takenAscending: "Date Taken (Oldest First)"
+            case .takenDescending: "Date Taken (Newest First)"
+            case .sizeAscending: "File Size (Smallest First)"
+            case .sizeDescending: "File Size (Largest First)"
+            }
+        }
+
+        /// The menu's choices in pairs; a divider goes between pairs.
+        static let groups: [[Order]] = [
+            [.nameAscending, .nameDescending],
+            [.createdAscending, .createdDescending],
+            [.modifiedAscending, .modifiedDescending],
+            [.takenAscending, .takenDescending],
+            [.sizeAscending, .sizeDescending],
+        ]
+
+        var isDescending: Bool {
+            switch self {
+            case .nameDescending, .createdDescending, .modifiedDescending, .takenDescending, .sizeDescending: true
+            default: false
+            }
+        }
+
+        /// The last order used, for the next import.
+        static var saved: Order {
+            get { UserDefaults.standard.string(forKey: "imageImportOrder").flatMap(Order.init) ?? .nameAscending }
+            set { UserDefaults.standard.set(newValue.rawValue, forKey: "imageImportOrder") }
+        }
+    }
+
+    /// Puts images in `order`. Names compare numbers as numbers (frame2 before frame10), the
+    /// way Finder sorts; images with the same date or size go in name order.
+    static func sorted(_ urls: [URL], by order: Order = .nameAscending) -> [URL] {
+        let byName = { (a: URL, b: URL) in
+            a.lastPathComponent.localizedStandardCompare(b.lastPathComponent) == .orderedAscending
+        }
+        switch order {
+        case .nameAscending: return urls.sorted(by: byName)
+        case .nameDescending: return urls.sorted { byName($1, $0) }
+        default: break
+        }
+        // Read each file's value once.
+        let keyed: [(url: URL, key: Double)] = urls.map { url in
+            let values = try? url.resourceValues(forKeys: [.creationDateKey, .contentModificationDateKey, .fileSizeKey])
+            let key: Double
+            switch order {
+            case .createdAscending, .createdDescending:
+                key = values?.creationDate?.timeIntervalSinceReferenceDate ?? 0
+            case .modifiedAscending, .modifiedDescending:
+                key = values?.contentModificationDate?.timeIntervalSinceReferenceDate ?? 0
+            case .takenAscending, .takenDescending:
+                // Photos without the date they were taken use the date the file was made.
+                key = (dateTaken(url) ?? values?.creationDate)?.timeIntervalSinceReferenceDate ?? 0
+            default:
+                key = Double(values?.fileSize ?? 0)
+            }
+            return (url, key)
+        }
+        return keyed.sorted { a, b in
+            if a.key != b.key { return order.isDescending ? a.key > b.key : a.key < b.key }
+            return byName(a.url, b.url)
+        }.map(\.url)
+    }
+
+    /// When a photo was taken, from its camera details (EXIF), if it says.
+    static func dateTaken(_ url: URL) -> Date? {
+        guard let source = CGImageSourceCreateWithURL(url as CFURL, nil),
+              let properties = CGImageSourceCopyPropertiesAtIndex(source, 0, nil) as? [CFString: Any],
+              let exif = properties[kCGImagePropertyExifDictionary] as? [CFString: Any],
+              let text = (exif[kCGImagePropertyExifDateTimeOriginal] ?? exif[kCGImagePropertyExifDateTimeDigitized]) as? String
+        else { return nil }
+        let formatter = DateFormatter()
+        formatter.locale = Locale(identifier: "en_US_POSIX")
+        formatter.dateFormat = "yyyy:MM:dd HH:mm:ss"
+        guard var date = formatter.date(from: text) else { return nil }
+        // Fractions of a second, for bursts taken within the same second.
+        if let fraction = exif[kCGImagePropertyExifSubsecTimeOriginal] as? String, let value = Double("0.\(fraction)") {
+            date += value
+        }
+        return date
     }
 
     /// A name for images picked by hand: "shot_0001.png", "shot_0002.png" → "shot".
@@ -181,7 +298,7 @@ nonisolated struct ImageSequence: Codable, Hashable, Sendable {
 }
 
 /// Images dropped on the window, waiting for the user to choose how to import them.
-struct PendingImageImport: Identifiable {
+nonisolated struct PendingImageImport: Identifiable, Sendable {
     let id = UUID()
     /// Folders of images.
     var folders: [URL]

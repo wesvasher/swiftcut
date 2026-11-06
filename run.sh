@@ -23,5 +23,9 @@ if pgrep -xq SwiftCut; then
   pkill -x SwiftCut 2>/dev/null || true
 fi
 
+# Opening can fail while a copy (e.g. from a test run) is still closing; try again.
+for attempt in 1 2 3; do
+  open "$APP" 2>/dev/null && { echo "Launched $APP"; exit 0; }
+  sleep 1
+done
 open "$APP"
-echo "Launched $APP"

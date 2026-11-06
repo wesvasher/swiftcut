@@ -137,6 +137,111 @@ struct ImageSequenceTests {
         #expect(!ImageSequence.isImage(dir.appending(path: "notes.txt")))
     }
 
+    /// Three images whose name, dates, and size each put them in a different order.
+    static func orderedImages() throws -> (a: URL, b: URL, c: URL) {
+        let dir = try TestVideo.tempDirectory()
+        let a = try png(in: dir, name: "a.png", size: CGSize(width: 40, height: 40), gray: 0.2)
+        let b = try png(in: dir, name: "b.png", size: CGSize(width: 10, height: 10), gray: 0.4)
+        let c = try png(in: dir, name: "c.png", size: CGSize(width: 90, height: 90), gray: 0.6)
+        let day = 86_400.0, base = Date(timeIntervalSinceReferenceDate: 700_000_000)
+        // Created: c, a, b. Modified: b, c, a.
+        try FileManager.default.setAttributes([.creationDate: base + day, .modificationDate: base + 9 * day], ofItemAtPath: a.path)
+        try FileManager.default.setAttributes([.creationDate: base + 2 * day, .modificationDate: base + 5 * day], ofItemAtPath: b.path)
+        try FileManager.default.setAttributes([.creationDate: base, .modificationDate: base + 7 * day], ofItemAtPath: c.path)
+        return (a, b, c)
+    }
+
+    /// Adds the date a photo was taken, as a camera would.
+    static func setDateTaken(_ text: String, on url: URL) throws {
+        let source = try #require(CGImageSourceCreateWithURL(url as CFURL, nil))
+        let image = try #require(CGImageSourceCreateImageAtIndex(source, 0, nil))
+        let destination = try #require(CGImageDestinationCreateWithURL(url as CFURL, UTType.jpeg.identifier as CFString, 1, nil))
+        CGImageDestinationAddImage(destination, image, [
+            kCGImagePropertyExifDictionary: [kCGImagePropertyExifDateTimeOriginal: text],
+        ] as CFDictionary)
+        #expect(CGImageDestinationFinalize(destination))
+    }
+
+    @Test func ordersByNameDatesAndSize() throws {
+        let (a, b, c) = try Self.orderedImages()
+        let names = { (order: ImageSequence.Order) in
+            ImageSequence.sorted([b, c, a], by: order).map { $0.deletingPathExtension().lastPathComponent }
+        }
+        #expect(names(.nameAscending) == ["a", "b", "c"])
+        #expect(names(.nameDescending) == ["c", "b", "a"])
+        #expect(names(.createdAscending) == ["c", "a", "b"])
+        #expect(names(.createdDescending) == ["b", "a", "c"])
+        #expect(names(.modifiedAscending) == ["b", "c", "a"])
+        #expect(names(.modifiedDescending) == ["a", "c", "b"])
+        #expect(names(.sizeAscending) == ["b", "a", "c"])
+        #expect(names(.sizeDescending) == ["c", "a", "b"])
+        // Without camera details, Date Taken is the date the file was made.
+        #expect(names(.takenAscending) == ["c", "a", "b"])
+    }
+
+    @Test func ordersByDateTaken() throws {
+        let (a, b, c) = try Self.orderedImages()
+        try Self.setDateTaken("2024:06:01 12:00:00", on: a)
+        try Self.setDateTaken("2024:06:01 11:00:00", on: b)
+        try Self.setDateTaken("2024:06:01 13:00:00", on: c)
+        #expect(ImageSequence.dateTaken(b) != nil)
+        #expect(ImageSequence.sorted([a, b, c], by: .takenAscending) == [b, a, c])
+        #expect(ImageSequence.sorted([a, b, c], by: .takenDescending) == [c, a, b])
+    }
+
+    @Test func sameValuesGoInNameOrder() throws {
+        let dir = try TestVideo.tempDirectory()
+        let urls = try ["shot10.png", "shot2.png", "shot1.png"].map { try Self.png(in: dir, name: $0) }
+        let date = Date(timeIntervalSinceReferenceDate: 700_000_000)
+        for url in urls { try FileManager.default.setAttributes([.modificationDate: date], ofItemAtPath: url.path) }
+        #expect(ImageSequence.sorted(urls, by: .modifiedDescending).map(\.lastPathComponent) == ["shot1.png", "shot2.png", "shot10.png"])
+    }
+
+    @Test @MainActor func importUsesTheChosenOrder() throws {
+        let (a, b, c) = try Self.orderedImages()
+        let store = ProjectStore(exporter: ExportManager.test("ImageSequenceTests"))
+        store.askAboutImages(in: [a, b, c])
+        store.finishImageImport(asSequence: true, order: .sizeDescending)
+        let paths = try #require(store.clips.first?.imageSequence?.imagePaths)
+        #expect(paths == [c, a, b].map { $0.path(percentEncoded: false) })
+
+        store.askAboutImages(in: [a.deletingLastPathComponent()])
+        store.finishImageImport(asSequence: false, order: .createdAscending)
+        #expect(store.clips.dropFirst().map(\.name) == ["c", "a", "b"])
+        store.removeClips(Set(store.clips.map(\.id)))
+    }
+
+    @Test func frameRateFromTheImportDialog() {
+        var sequence = ImageSequence(name: "Shots", imagePaths: ["/a/1.png", "/a/2.png"])
+        sequence.setFrameRate(12.5)
+        #expect(sequence.frameRate == 12.5 && !sequence.isCustomFrameRate)
+        sequence.setFrameRate(7.5)
+        #expect(sequence.frameRate == 7.5 && sequence.isCustomFrameRate)
+        sequence.setFrameRate(1000)
+        #expect(sequence.frameRate == ImageSequence.maxFrameRate)
+    }
+
+    @Test @MainActor func importMakesTheVideoAtTheChosenRate() async throws {
+        let (dir, _) = try Self.folder(count: 6)
+        let store = ProjectStore(exporter: ExportManager.test("ImageSequenceTests"))
+        store.askAboutImages(in: [dir])
+        store.finishImageImport(asSequence: true, frameRate: 12)
+        let clip = try #require(store.clips.first)
+        #expect(clip.imageSequence?.frameRate == 12)
+        try await Self.waitUntil { store.clip(for: clip.id)?.isLoaded == true }
+        // Made at 12 fps straight away: 6 images last half a second.
+        let loaded = try #require(store.clip(for: clip.id))
+        #expect(loaded === clip)
+        #expect(abs(loaded.duration - 0.5) < 0.001)
+        #expect(abs(Double(loaded.frameRate) - 12) < 0.01)
+
+        store.askAboutImages(in: [dir])
+        store.finishImageImport(asSequence: false, frameRate: 7.5)
+        #expect(store.clips.dropFirst().allSatisfy { $0.imageSequence?.frameRate == 7.5 && $0.imageSequence?.isCustomFrameRate == true })
+        try? FileManager.default.removeItem(at: loaded.url)
+        store.removeClips(Set(store.clips.map(\.id)))
+    }
+
     @Test func namesForChosenImages() {
         let urls = ["shot_0001.png", "shot_0002.png"].map { URL(filePath: "/tmp/\($0)") }
         #expect(ImageSequence.name(forImages: urls) == "shot")

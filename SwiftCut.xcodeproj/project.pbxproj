@@ -44,6 +44,7 @@
 		5BE786EEDC40AEDCE37F5C4F /* NewSourceVideoTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = B651D74432C531DB3E5324CA /* NewSourceVideoTests.swift */; };
 		5ED7CCAC40354C5CAAD0EFE2 /* ExportPresetTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = F6BA4AA90E73EA53FB016421 /* ExportPresetTests.swift */; };
 		685160623B01B202F313ADC3 /* ExportPresetEditor.swift in Sources */ = {isa = PBXBuildFile; fileRef = AEF7DF648EB3AFBBE430EA9C /* ExportPresetEditor.swift */; };
+		68B876B419F4820A4ACBA44B /* ImageImportSheet.swift in Sources */ = {isa = PBXBuildFile; fileRef = 546496C764583D5757F0B437 /* ImageImportSheet.swift */; };
 		697F72F0DE684160A2AE50C3 /* ClipDetailView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 48E87BBB3D62BC065A116B55 /* ClipDetailView.swift */; };
 		6B1A068547515E79C1A4237E /* Transcoder.swift in Sources */ = {isa = PBXBuildFile; fileRef = B99F134539B4E6DD96C08B0C /* Transcoder.swift */; };
 		6D0FB7739338A9EC9D4BA660 /* TimelineEditorView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 33C92205D480F96689F504F1 /* TimelineEditorView.swift */; };
@@ -139,6 +140,7 @@
 		4DF2AF2488A9ACB26F005762 /* WaveformView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WaveformView.swift; sourceTree = "<group>"; };
 		4FA672AC91EC9205E304A02B /* ExportManager.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ExportManager.swift; sourceTree = "<group>"; };
 		52A00059AE6CD629EF41B422 /* ImageSequenceWriter.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ImageSequenceWriter.swift; sourceTree = "<group>"; };
+		546496C764583D5757F0B437 /* ImageImportSheet.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ImageImportSheet.swift; sourceTree = "<group>"; };
 		56801EDF21C9E373F8164C49 /* ExportEstimate.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ExportEstimate.swift; sourceTree = "<group>"; };
 		5962417DF9D0ABB4CE4672A0 /* CompositionBuilder.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CompositionBuilder.swift; sourceTree = "<group>"; };
 		5979215272B35AB8E937F94F /* ViewerZoomTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ViewerZoomTests.swift; sourceTree = "<group>"; };
@@ -226,6 +228,7 @@
 				F8483D0D827E76F18FE717C9 /* ExportToolbar.swift */,
 				A28063A3F34061522459B636 /* FullScreenPlayer.swift */,
 				1059E7D9DB05F5FFAD03DBC3 /* HelpSettingsView.swift */,
+				546496C764583D5757F0B437 /* ImageImportSheet.swift */,
 				95021ADB0B422D08105A7427 /* ImageSequenceSection.swift */,
 				C474EC37B803A6B8BFB2EA43 /* InspectorPanel.swift */,
 				7E0C080F9DA10F9A5D82BE49 /* LoudnessMeter.swift */,
@@ -503,6 +506,7 @@
 				4193381319565BD1BAAB51B1 /* FullScreenPlayer.swift in Sources */,
 				E16A7C36AF23AE4C32323885 /* HelpArticle.swift in Sources */,
 				3AFFBEC962AEE0525712B61A /* HelpSettingsView.swift in Sources */,
+				68B876B419F4820A4ACBA44B /* ImageImportSheet.swift in Sources */,
 				044877411F642F3ACB9099FA /* ImageSequence.swift in Sources */,
 				427F455BF31973CD6ACC1AAA /* ImageSequenceSection.swift in Sources */,
 				1572C6619D1F443F8EF13263 /* ImageSequenceWriter.swift in Sources */,

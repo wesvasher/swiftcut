@@ -28,10 +28,11 @@ extension ProjectStore {
 
     /// The drop dialog's answer: `asSequence` makes each folder (and the loose images
     /// together) one video; otherwise each image becomes its own still clip.
-    func finishImageImport(asSequence: Bool) {
+    func finishImageImport(asSequence: Bool, order: ImageSequence.Order = .nameAscending, frameRate: Double? = nil) {
         guard let pending = pendingImageImport else { return }
         pendingImageImport = nil
-        let clips = importImages(folders: pending.folders, images: pending.images, asSequence: asSequence)
+        let clips = importImages(folders: pending.folders, images: pending.images, asSequence: asSequence,
+                                 order: order, frameRate: frameRate)
         guard !clips.isEmpty else { return }
         if let index = pending.timelineIndex {
             addToTimeline(clips, at: index)
@@ -53,13 +54,20 @@ extension ProjectStore {
         panel.allowsMultipleSelection = true
         panel.allowedContentTypes = [.image, .folder]
         panel.prompt = "Import"
-        panel.message = "Choose a folder of images, or select the images, to make into a video. Images play in name order."
+        panel.message = "Choose a folder of images, or select the images, to make into a video."
+        let options = ImportOptions()
+        panel.accessoryView = options.view
+        panel.isAccessoryViewDisclosed = true
         let finish = { [weak self] (response: NSApplication.ModalResponse) in
             guard response == .OK, let self else { return }
             let urls = panel.urls
+            let order = options.order, frameRate = options.frameRate
+            ImageSequence.Order.saved = order
+            ImageSequence.savedFrameRate = frameRate
             urls.forEach { _ = $0.startAccessingSecurityScopedResource() }
             let clips = self.importImages(folders: urls.filter(ImageSequence.isFolder),
-                                          images: urls.filter(ImageSequence.isImage), asSequence: true)
+                                          images: urls.filter(ImageSequence.isImage), asSequence: true,
+                                          order: order, frameRate: frameRate)
             if !clips.isEmpty { self.selection = Set(clips.map { .clip($0.id) }) }
         }
         if let window = NSApp.keyWindow ?? NSApp.mainWindow {
@@ -69,21 +77,105 @@ extension ProjectStore {
         }
     }
 
+    /// The open panel's Order and Frame Rate menus (Custom shows a field for the rate).
+    private final class ImportOptions: NSObject {
+        let view: NSView
+        private let orderPopUp = NSPopUpButton()
+        private let ratePopUp = NSPopUpButton()
+        private let customRate = NSTextField()
+        private let fpsLabel = NSTextField(labelWithString: "fps")
+        /// The Custom item's tag; the others are indexes into `ImageSequence.frameRates`.
+        private static let customTag = -1
+
+        override init() {
+            let saved = ImageSequence.savedFrameRate
+            let isCustom = !ImageSequence.frameRates.contains(saved)
+
+            for (index, group) in ImageSequence.Order.groups.enumerated() {
+                if index > 0 { orderPopUp.menu?.addItem(.separator()) }
+                for order in group {
+                    let item = NSMenuItem(title: order.title, action: nil, keyEquivalent: "")
+                    item.representedObject = order.rawValue
+                    orderPopUp.menu?.addItem(item)
+                }
+            }
+            if let item = orderPopUp.itemArray.first(where: { $0.representedObject as? String == ImageSequence.Order.saved.rawValue }) {
+                orderPopUp.select(item)
+            }
+
+            for (index, fps) in ImageSequence.frameRates.enumerated() {
+                let item = NSMenuItem(title: ImageSequence.frameRateTitle(fps), action: nil, keyEquivalent: "")
+                item.tag = index
+                ratePopUp.menu?.addItem(item)
+            }
+            ratePopUp.menu?.addItem(.separator())
+            let custom = NSMenuItem(title: "Custom…", action: nil, keyEquivalent: "")
+            custom.tag = Self.customTag
+            ratePopUp.menu?.addItem(custom)
+            ratePopUp.selectItem(withTag: isCustom ? Self.customTag : ImageSequence.frameRates.firstIndex(of: saved) ?? 0)
+
+            let formatter = NumberFormatter()
+            formatter.minimumFractionDigits = 0
+            formatter.maximumFractionDigits = 3
+            formatter.minimum = NSNumber(value: ImageSequence.minFrameRate)
+            formatter.maximum = NSNumber(value: ImageSequence.maxFrameRate)
+            customRate.formatter = formatter
+            customRate.doubleValue = saved
+            customRate.widthAnchor.constraint(equalToConstant: 60).isActive = true
+
+            let grid = NSGridView(views: [
+                [NSTextField(labelWithString: "Order:"), orderPopUp],
+                [NSTextField(labelWithString: "Frame Rate:"),
+                 NSStackView(views: [ratePopUp, customRate, fpsLabel])],
+            ])
+            grid.column(at: 0).xPlacement = .trailing
+            grid.rowAlignment = .firstBaseline
+            grid.rowSpacing = 8
+            grid.columnSpacing = 8
+            let container = NSStackView(views: [grid])
+            container.edgeInsets = NSEdgeInsets(top: 10, left: 20, bottom: 10, right: 20)
+            view = container
+            super.init()
+            ratePopUp.target = self
+            ratePopUp.action = #selector(rateChanged)
+            rateChanged()
+        }
+
+        @objc private func rateChanged() {
+            let isCustom = ratePopUp.selectedTag() == Self.customTag
+            customRate.isHidden = !isCustom
+            fpsLabel.isHidden = !isCustom
+        }
+
+        var order: ImageSequence.Order {
+            (orderPopUp.selectedItem?.representedObject as? String).flatMap(ImageSequence.Order.init) ?? .nameAscending
+        }
+
+        var frameRate: Double {
+            let tag = ratePopUp.selectedTag()
+            if tag == Self.customTag {
+                return ImageSequence.clampedFrameRate(customRate.doubleValue > 0 ? customRate.doubleValue : 24)
+            }
+            return ImageSequence.frameRates.indices.contains(tag) ? ImageSequence.frameRates[tag] : 24
+        }
+    }
+
     // MARK: Importing
 
     /// Adds source videos made from images. As a sequence, each folder becomes one video and
     /// the loose images another; otherwise every image is its own still. Returns the new clips.
     @discardableResult
-    func importImages(folders: [URL], images: [URL], asSequence: Bool) -> [Clip] {
+    func importImages(folders: [URL], images: [URL], asSequence: Bool,
+                      order: ImageSequence.Order = .nameAscending, frameRate: Double? = nil) -> [Clip] {
         var sequences: [ImageSequence] = []
         if asSequence {
             for folder in folders {
-                let urls = ImageSequence.images(in: folder)
+                let urls = ImageSequence.images(in: folder, order: order)
                 guard !urls.isEmpty else { continue }
                 sequences.append(ImageSequence(name: folder.lastPathComponent, imagePaths: urls.map(Self.path),
                                                access: [ImageSequence.access(to: folder)]))
             }
-            let loose = ImageSequence.sorted(images)
+            let loose = ImageSequence.sorted(images, by: order)
             if !loose.isEmpty {
                 sequences.append(ImageSequence(name: ImageSequence.name(forImages: loose), imagePaths: loose.map(Self.path),
                                                access: loose.map(ImageSequence.access(to:))))
@@ -91,14 +183,17 @@ extension ProjectStore {
         } else {
             for folder in folders {
                 let access = ImageSequence.access(to: folder)
-                sequences += ImageSequence.images(in: folder).map {
+                sequences += ImageSequence.images(in: folder, order: order).map {
                     ImageSequence(name: $0.deletingPathExtension().lastPathComponent, imagePaths: [Self.path($0)], access: [access])
                 }
             }
-            sequences += ImageSequence.sorted(images).map {
+            sequences += ImageSequence.sorted(images, by: order).map {
                 ImageSequence(name: $0.deletingPathExtension().lastPathComponent, imagePaths: [Self.path($0)],
                               access: [ImageSequence.access(to: $0)])
             }
+        }
+        if let frameRate {
+            for index in sequences.indices { sequences[index].setFrameRate(frameRate) }
         }
         let new = sequences.map { Clip(sequence: $0) }
         clips += new

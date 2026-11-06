@@ -12,7 +12,7 @@ SwiftCut can make a source video from images, such as frames from a render, a ti
 - **Drag** a folder of images, or some images, from Finder onto the window. SwiftCut asks whether to import them as an **Image Sequence** (one video, one image per frame) or as **Individual Images** (each image its own still clip).
 - Or choose **File › Import Image Sequence…** (⌥⇧⌘I) and pick a folder or images.
 
-Images play in name order, with numbers compared the way Finder does, so `frame2` comes before `frame10`. Each folder becomes its own video.
+Both ways have an **Order** menu: by name (with numbers compared the way Finder does, so `frame2` comes before `frame10`), date created, date modified, date taken, or file size, either way round. Date Taken comes from the camera's details, or the date the file was made when there are none. There's also a **Frame Rate** menu, with Custom for any rate, so the video is made at the right speed from the start. SwiftCut remembers both choices for next time. Each folder becomes its own video.
 
 ## Settings
 
