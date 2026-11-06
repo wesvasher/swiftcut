@@ -17,6 +17,10 @@ final class ProjectStore {
     var selection: Set<SidebarItem> = []
     var selectedTimelineItemID: UUID?
     var isImporting = false
+    /// Images dropped on the window, while the user chooses Image Sequence or Individual Images.
+    var pendingImageImport: PendingImageImport?
+    /// Videos being made from images, by clip, with the file each will write.
+    @ObservationIgnored var sequenceBuilds: [UUID: (url: URL, task: Task<Void, Never>)] = [:]
     /// How loud each timeline item's part of its file is, by `loudnessKey`.
     private(set) var loudness: [String: LoudnessState] = [:]
     /// The timeline player's volume changes and live level.
@@ -200,7 +204,8 @@ final class ProjectStore {
 
     /// Source videos that couldn't be opened: moved, deleted, or the app has no permission
     /// (projects saved by FunSize, the app's old name, can't pass their permission on).
-    var missingClips: [Clip] { clips.filter { $0.loadError != nil } }
+    /// (Image sequences aren't listed: they're found again from their images, not located.)
+    var missingClips: [Clip] { clips.filter { $0.loadError != nil && $0.imageSequence == nil } }
 
     /// Points missing source videos at files the user chose, matching by file name.
     /// With one file chosen for one clip (`preferring`), uses it even if the name differs.
@@ -311,6 +316,7 @@ final class ProjectStore {
         if file.timelineSettings != timelineSettings { timelineSettings = file.timelineSettings }
 
         pruneSelection()
+        refreshImageSequences()
     }
 
     /// Selects something sensible after opening a project.
@@ -325,6 +331,12 @@ final class ProjectStore {
 
     /// Finds a saved clip's video (following it if it moved) and starts loading it.
     private static func openClip(_ record: ProjectFile.ClipRecord) -> Clip {
+        if let sequence = record.imageSequence {
+            // Made from images: get permission to read them again. The video is checked (and
+            // made again if it's gone) by `refreshImageSequences`.
+            sequence.startAccess()
+            return Clip(sequence: sequence, id: record.id)
+        }
         var url = URL(filePath: record.path)
         var bookmark = record.bookmark
         if let data = record.bookmark {
@@ -438,8 +450,9 @@ final class ProjectStore {
             addToTimeline(dragged.map { .subclip($0) }, at: index)
             return true
         }
+        let images = askAboutImages(in: urls, timelineIndex: index)
         let clips = importFiles(urls)
-        guard !clips.isEmpty else { return false }
+        guard !clips.isEmpty else { return images }
         addToTimeline(clips, at: index)
         return true
     }

@@ -2,8 +2,8 @@ import AVFoundation
 import CoreImage
 import Observation
 
-/// A source video: a video (or audio) file the user imported, used as is.
-/// Its in and out marks are where the next subclip will come from.
+/// A source video: a video (or audio) file the user imported, used as is, or a video SwiftCut
+/// made from images (`imageSequence`). Its in and out marks are where the next subclip will come from.
 @Observable
 final class Clip: Identifiable {
     struct Thumbnail: Identifiable {
@@ -35,6 +35,14 @@ final class Clip: Identifiable {
     /// Volume keyframes, drawn on the waveform in the clip viewer. The timeline follows them where
     /// it plays the whole source video; subclips have their own (see `Subclip.volume`).
     var volume = VolumeEnvelope()
+    /// Set when this source video is made from images; `url` is then the video SwiftCut made.
+    var imageSequence: ImageSequence?
+    /// 0…1 while the video is being made from the images, `nil` otherwise.
+    var sequenceProgress: Double?
+    /// Why the video couldn't be made from the images, if it couldn't.
+    var sequenceError: String?
+    /// Details are being read from the file.
+    @ObservationIgnored var isLoading = false
     var isLoaded = false
     var loadError: String?
 
@@ -198,10 +206,25 @@ final class Clip: Identifiable {
     /// "60p" for 29.97 fps interlaced video, "50p" for PAL.
     var deinterlacedRateLabel: String { "\(Int((frameRate * 2).rounded()))p" }
 
-    init(url: URL, id: UUID = UUID()) {
+    init(url: URL, id: UUID = UUID(), name: String? = nil) {
         self.id = id
         self.url = url
-        self.name = url.deletingPathExtension().lastPathComponent
+        self.name = name ?? url.deletingPathExtension().lastPathComponent
+    }
+
+    /// A source video made from images.
+    convenience init(sequence: ImageSequence, id: UUID = UUID()) {
+        self.init(url: sequence.videoURL, id: id, name: sequence.name)
+        imageSequence = sequence
+    }
+
+    /// What Show in Finder reveals: the images for an image sequence, otherwise the file.
+    var finderURLs: [URL] {
+        guard let sequence = imageSequence else { return [url] }
+        if let folder = sequence.access.first(where: { ImageSequence.isFolder(URL(filePath: $0.path)) }) {
+            return [URL(filePath: folder.path)]
+        }
+        return sequence.imageURLs
     }
 
     // MARK: Saving
@@ -212,7 +235,10 @@ final class Clip: Identifiable {
 
     /// The parts of this clip a project file keeps.
     var record: ProjectFile.ClipRecord {
-        var r = ProjectFile.ClipRecord(id: id, url: url, bookmark: bookmark)
+        // An image sequence is saved by its images (the video is made again when it's gone),
+        // so remaking the video doesn't change the project.
+        var r = imageSequence.map { ProjectFile.ClipRecord(id: id, url: $0.imageURLs.first ?? url, bookmark: nil) }
+            ?? ProjectFile.ClipRecord(id: id, url: url, bookmark: bookmark)
         r.inPoint = inPoint
         r.outPoint = outPoint
         r.deinterlace = deinterlace
@@ -231,6 +257,7 @@ final class Clip: Identifiable {
         r.grade = grade
         r.volume = volume.isEmpty ? nil : volume
         r.layout = layout == FrameLayout() ? nil : layout
+        r.imageSequence = imageSequence
         return r
     }
 
@@ -257,6 +284,7 @@ final class Clip: Identifiable {
         if self.volume != volume { self.volume = volume }
         let layout = r.layout ?? FrameLayout()
         if self.layout != layout { self.layout = layout }
+        if imageSequence != r.imageSequence { imageSequence = r.imageSequence }
     }
 
     var poster: CGImage? { colored(thumbnails.indices.first) }

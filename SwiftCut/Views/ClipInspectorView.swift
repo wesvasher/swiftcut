@@ -60,21 +60,34 @@ struct ClipInspectorView: View {
                     SubclipSection(subclip: subclip, clip: clip, clock: controller?.clock, showSource: showSource)
                 }
 
+                if subclip == nil, clip.imageSequence != nil {
+                    ImageSequenceSection(clip: clip)
+                }
+
                 InspectorSection(subclip == nil ? "File" : "Source Video") {
                     InspectorRow("Name", clip.name)
-                    InspectorRow("Format", clip.containerName)
-                    InspectorRow("Size", clip.fileSize.formatted(.byteCount(style: .file)))
+                    if let sequence = clip.imageSequence {
+                        InspectorRow("Format", sequence.isStill ? "Still image" : "Image sequence")
+                    } else {
+                        InspectorRow("Format", clip.containerName)
+                        InspectorRow("Size", clip.fileSize.formatted(.byteCount(style: .file)))
+                    }
                     InspectorRow("Duration", clip.duration.preciseTimecode)
-                    InspectorRow("Created", clip.creationDate?.formatted(date: .abbreviated, time: .shortened))
+                    if clip.imageSequence == nil {
+                        InspectorRow("Created", clip.creationDate?.formatted(date: .abbreviated, time: .shortened))
+                    }
                     GridRow {
+                        // For an image sequence, where the images are (not the video SwiftCut made).
+                        let shown = clip.finderURLs.first ?? clip.url
+                        let folder = ImageSequence.isFolder(shown) ? shown : shown.deletingLastPathComponent()
                         InspectorLabel("Location")
-                        Button(clip.url.deletingLastPathComponent().lastPathComponent) {
-                            NSWorkspace.shared.activateFileViewerSelecting([clip.url])
+                        Button(folder.lastPathComponent) {
+                            NSWorkspace.shared.activateFileViewerSelecting(clip.finderURLs)
                         }
                         .buttonStyle(.link)
                         .lineLimit(1)
                         .truncationMode(.middle)
-                        .help("Show in Finder: \(clip.url.path(percentEncoded: false))")
+                        .help("Show in Finder: \(shown.path(percentEncoded: false))")
                     }
                 }
 

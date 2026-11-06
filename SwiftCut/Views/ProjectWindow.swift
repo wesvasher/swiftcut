@@ -19,6 +19,8 @@ struct ProjectWindow: View {
                     .focusedSceneValue(store)
                     .onChange(of: store.projectFile) { _, file in
                         if document.file != file { document.file = file }
+                        // A changed image sequence setting (or Undo) makes its video again.
+                        store.refreshImageSequences()
                     }
                     .onChange(of: document.file) { _, file in
                         store.apply(file)

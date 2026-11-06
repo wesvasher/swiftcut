@@ -32,6 +32,21 @@ struct ContentView: View {
                 store.importAndSelect(urls, securityScoped: true)
             }
         }
+        // Files dropped anywhere else in the window (the sidebar, timeline, and drop zone take their own).
+        .dropDestination(for: URL.self) { urls, _ in
+            store.handleDrop(urls)
+        }
+        .alert(imageImportTitle, isPresented: Binding(
+            get: { store.pendingImageImport != nil },
+            set: { if !$0 { DispatchQueue.main.async { store.cancelImageImport() } } }
+        ), presenting: store.pendingImageImport) { _ in
+            Button("Image Sequence") { store.finishImageImport(asSequence: true) }
+                .keyboardShortcut(.defaultAction)
+            Button("Individual Images") { store.finishImageImport(asSequence: false) }
+            Button("Cancel", role: .cancel) { store.cancelImageImport() }
+        } message: { pending in
+            Text(imageImportMessage(pending))
+        }
         .frame(minWidth: 900, minHeight: 560)
         .alert("Export Folder Not Found", isPresented: Binding(
             get: { store.exportPrompt != nil },
@@ -52,6 +67,18 @@ struct ContentView: View {
                 openSettings()
             }
         }
+    }
+
+    private var imageImportTitle: String {
+        let count = store.pendingImageImport?.imageCount ?? 0
+        return count == 1 ? "Import 1 image?" : "Import \(count.formatted()) images?"
+    }
+
+    private func imageImportMessage(_ pending: PendingImageImport) -> String {
+        let sequence = pending.folders.count > 1
+            ? "An image sequence makes each folder one video, one image per frame, in name order."
+            : "An image sequence makes them one video, one image per frame, in name order."
+        return sequence + " Individual images makes each image its own still clip. You can change the frame size, frame rate, and length in the inspector."
     }
 }
 
@@ -98,9 +125,9 @@ struct DropZoneView: View {
 
     var body: some View {
         ContentUnavailableView {
-            Label("Drop Videos Here", systemImage: "film.stack")
+            Label("Drop Videos or Images Here", systemImage: "film.stack")
         } description: {
-            Text("Drag video files from Finder, then choose a format from Export.")
+            Text("Drag video files, images, or a folder of images from Finder, then choose a format from Export.")
         } actions: {
             Button("Import Videos…") { store.isImporting = true }
                 .buttonStyle(.borderedProminent)
@@ -113,8 +140,7 @@ struct DropZoneView: View {
                 .padding(24)
         }
         .dropDestination(for: URL.self) { urls, _ in
-            store.importAndSelect(urls)
-            return true
+            store.handleDrop(urls)
         } isTargeted: { isTargeted = $0 }
     }
 }

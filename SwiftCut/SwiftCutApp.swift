@@ -58,6 +58,9 @@ struct ProjectCommands: Commands {
             Button("Import Videos…") { store?.isImporting = true }
                 .keyboardShortcut("i", modifiers: [.command, .shift])
                 .disabled(store == nil)
+            Button("Import Image Sequence…") { store?.chooseImageSequence() }
+                .keyboardShortcut("i", modifiers: [.command, .shift, .option])
+                .disabled(store == nil)
         }
     }
 }

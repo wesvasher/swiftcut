@@ -45,8 +45,7 @@ struct SidebarView: View {
             store.removeSelectedMedia()
         }
         .dropDestination(for: URL.self) { urls, _ in
-            store.importAndSelect(urls)
-            return true
+            store.handleDrop(urls)
         } isTargeted: { isTargeted = $0 }
         .overlay {
             if isTargeted {
@@ -123,7 +122,7 @@ struct SidebarView: View {
                 }
             }
             Button("Show in Finder", systemImage: "folder") {
-                let urls = clips.map(\.url) + subclips.compactMap { store.clip(for: $0.sourceID)?.url }
+                let urls = clips.flatMap(\.finderURLs) + subclips.flatMap { store.clip(for: $0.sourceID)?.finderURLs ?? [] }
                 NSWorkspace.shared.activateFileViewerSelecting(Array(Set(urls)))
             }
             Divider()
@@ -232,12 +231,16 @@ struct ClipRow: View {
                     .lineLimit(1)
                     .truncationMode(.middle)
                 Group {
-                    if let error = clip.loadError {
+                    if let progress = clip.sequenceProgress, !clip.isLoaded {
+                        Text("Making video… \(progress.formatted(.percent.precision(.fractionLength(0))))")
+                    } else if let error = clip.loadError {
                         Label(error, systemImage: "exclamationmark.triangle")
                     } else if clip.isLoaded && clip.hasMarks {
                         Label("Marked \((clip.markedRange.upperBound - clip.markedRange.lowerBound).timecode) of \(clip.duration.timecode)", systemImage: "scissors")
                     } else if clip.isLoaded && subclipCount > 0 {
                         Text("\(clip.summary) · \(subclipCount) subclip\(subclipCount == 1 ? "" : "s")")
+                    } else if clip.isLoaded, clip.imageSequence != nil {
+                        Label(clip.summary, systemImage: clip.imageSequence?.isStill == true ? "photo" : "photo.stack")
                     } else if clip.isLoaded {
                         Text(clip.summary)
                     } else {

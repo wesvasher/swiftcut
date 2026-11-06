@@ -88,6 +88,9 @@ nonisolated struct ProjectFile: Codable, Equatable, Sendable {
         var volume: VolumeEnvelope?
         /// Scale, position, and background; `nil` when untouched.
         var layout: FrameLayout?
+        /// The images and settings, for a source video made from images. `path` is then the
+        /// video SwiftCut made, which it makes again if it's gone.
+        var imageSequence: ImageSequence?
 
         init(id: UUID = UUID(), url: URL, bookmark: Data?) {
             self.id = id
@@ -126,6 +129,7 @@ nonisolated struct ProjectFile: Codable, Equatable, Sendable {
             grade = try c.decodeIfPresent(ColorGrade.self, forKey: .grade) ?? ColorGrade()
             volume = try? c.decodeIfPresent(VolumeEnvelope.self, forKey: .volume)
             layout = try? c.decodeIfPresent(FrameLayout.self, forKey: .layout)
+            imageSequence = try? c.decodeIfPresent(ImageSequence.self, forKey: .imageSequence)
         }
     }
 

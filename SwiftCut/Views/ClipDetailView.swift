@@ -47,6 +47,12 @@ struct ClipDetailView: View {
                               pictureSize: clip.outputSize == .zero ? clip.displaySize : clip.outputSize,
                               zoom: zoom, pan: $pan, zoomToFit: { zoom = .fit },
                               reportView: { visibleView = ($0, $1) })
+                .overlay(alignment: .top) {
+                    if let progress = clip.sequenceProgress {
+                        SequenceProgressBadge(progress: progress, isFirst: !clip.isLoaded)
+                            .padding(.top, 12)
+                    }
+                }
                 .toast($toast)
 
             Divider()
