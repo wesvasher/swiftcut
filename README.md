@@ -14,3 +14,8 @@ open SwiftCut.xcodeproj
 ```
 
 Project settings live in `project.yml`. Add new files under `SwiftCut/` and re-run `xcodegen generate`.
+
+## Build and run
+```sh
+./run.sh   # regenerate the project, build Debug, and relaunch the app
+```
