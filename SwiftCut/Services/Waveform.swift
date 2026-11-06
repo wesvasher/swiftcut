@@ -26,8 +26,9 @@ nonisolated struct Waveform: Sendable, Equatable {
         let tracks = try await asset.loadTracks(withMediaType: .audio)
         guard !tracks.isEmpty, duration > 0 else { return nil }
         let sampleRate = 8_000.0
-        let reader = try AVAssetReader(asset: asset)
-        let output = AVAssetReaderAudioMixOutput(audioTracks: tracks, audioSettings: [
+        // Used from the reading thread only once set up.
+        nonisolated(unsafe) let reader = try AVAssetReader(asset: asset)
+        nonisolated(unsafe) let output = AVAssetReaderAudioMixOutput(audioTracks: tracks, audioSettings: [
             AVFormatIDKey: kAudioFormatLinearPCM,
             AVSampleRateKey: sampleRate,
             AVNumberOfChannelsKey: 1,
@@ -42,24 +43,30 @@ nonisolated struct Waveform: Sendable, Equatable {
 
         let sliceCount = Self.sliceCount(duration: duration)
         let samplesPerSlice = max(1.0, duration * sampleRate / Double(sliceCount))
-        var linear = [Float](repeating: 0, count: sliceCount)
-        var position = 0
-        while let buffer = output.copyNextSampleBuffer() {
-            try Task.checkCancellation()
-            guard let block = CMSampleBufferGetDataBuffer(buffer) else { continue }
-            var length = 0
-            var pointer: UnsafeMutablePointer<CChar>?
-            guard CMBlockBufferGetDataPointer(block, atOffset: 0, lengthAtOffsetOut: nil, totalLengthOut: &length,
-                                              dataPointerOut: &pointer) == noErr, let pointer else { continue }
-            pointer.withMemoryRebound(to: Float.self, capacity: length / 4) { samples in
-                for index in 0..<(length / 4) {
-                    let slice = min(sliceCount - 1, Int(Double(position) / samplesPerSlice))
-                    linear[slice] = max(linear[slice], abs(samples[index]))
-                    position += 1
+        // The reading blocks its thread, so it runs off Swift's shared ones.
+        return try await BlockingWork.run { isCancelled in
+            var linear = [Float](repeating: 0, count: sliceCount)
+            var position = 0
+            while let buffer = output.copyNextSampleBuffer() {
+                if isCancelled() {
+                    reader.cancelReading()
+                    throw CancellationError()
+                }
+                guard let block = CMSampleBufferGetDataBuffer(buffer) else { continue }
+                var length = 0
+                var pointer: UnsafeMutablePointer<CChar>?
+                guard CMBlockBufferGetDataPointer(block, atOffset: 0, lengthAtOffsetOut: nil, totalLengthOut: &length,
+                                                  dataPointerOut: &pointer) == noErr, let pointer else { continue }
+                pointer.withMemoryRebound(to: Float.self, capacity: length / 4) { samples in
+                    for index in 0..<(length / 4) {
+                        let slice = min(sliceCount - 1, Int(Double(position) / samplesPerSlice))
+                        linear[slice] = max(linear[slice], abs(samples[index]))
+                        position += 1
+                    }
                 }
             }
+            if reader.status == .failed { throw reader.error ?? CocoaError(.fileReadUnknown) }
+            return Waveform(peaks: linear.map { $0 > 0 ? max(floorDB, 20 * log10($0)) : floorDB })
         }
-        if reader.status == .failed { throw reader.error ?? CocoaError(.fileReadUnknown) }
-        return Waveform(peaks: linear.map { $0 > 0 ? max(floorDB, 20 * log10($0)) : floorDB })
     }
 }

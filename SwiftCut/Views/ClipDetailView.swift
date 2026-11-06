@@ -248,27 +248,22 @@ private struct TransportBar: View {
     @State private var maxZoom = 1.0
     private let zoomStep = 1.5
 
-    /// Zoom out, a slider, zoom in, and zoom to fit, like the timeline's.
+    /// Zoom out and zoom in, like the timeline's. A button that can't go further is dimmed.
     private var zoomControls: some View {
-        HStack(spacing: 4) {
+        let canZoomOut = zoom > 1
+        let canZoomIn = zoom < maxZoom
+        return HStack(spacing: 4) {
             Button("Zoom Out", systemImage: "minus.magnifyingglass") { zoom = max(1, zoom / zoomStep) }
-                .help("Zoom out")
-                .disabled(zoom <= 1)
-            // Even steps across the range, however long the clip.
-            Slider(value: Binding(
-                get: { maxZoom > 1 ? log(zoom) / log(maxZoom) : 0 },
-                set: { zoom = min(maxZoom, max(1, pow(maxZoom, $0))) }
-            ), in: 0...1)
-            .frame(width: 110)
-            .help("Zoom the filmstrip. Zoom in far enough and each frame shows on its own.")
+                .help(canZoomOut ? "Zoom out" : "Zoomed out all the way: the whole clip is in view")
+                .disabled(!canZoomOut)
+                .foregroundStyle(canZoomOut ? .secondary : .quaternary)
             Button("Zoom In", systemImage: "plus.magnifyingglass") { zoom = min(maxZoom, zoom * zoomStep) }
-                .help("Zoom in")
-                .disabled(zoom >= maxZoom)
+                .help(canZoomIn ? "Zoom in. Zoom in far enough and each frame shows on its own." : "Zoomed in all the way")
+                .disabled(!canZoomIn)
+                .foregroundStyle(canZoomIn ? .secondary : .quaternary)
         }
         .labelStyle(.iconOnly)
         .buttonStyle(.borderless)
-        .foregroundStyle(.secondary)
-        .disabled(maxZoom <= 1)
     }
 
     /// Shift and Option change how far the nudge buttons move a point.

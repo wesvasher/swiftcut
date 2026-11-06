@@ -59,12 +59,17 @@ extension Clip {
     /// Reads the waveform the first time it's needed (it's kept on the clip after that).
     func readWaveform() async {
         guard hasAudio, !isWaveformRead, isLoaded else { return }
-        let url = url, duration = duration
-        let waveform = try? await Task.detached(priority: .utility) {
-            try await Waveform.read(url: url, duration: duration)
-        }.value
-        guard !Task.isCancelled, !isWaveformRead else { return }
+        if waveformRead == nil {
+            let url = url, duration = duration
+            waveformRead = Task.detached(priority: .utility) {
+                try? await Waveform.read(url: url, duration: duration)
+            }
+        }
+        let waveform = await waveformRead?.value
+        // Kept even if this view went away meanwhile, so the clip isn't read again.
+        guard !isWaveformRead else { return }
         self.waveform = waveform
         isWaveformRead = true
+        waveformRead = nil
     }
 }

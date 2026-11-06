@@ -29,6 +29,9 @@ final class Clip: Identifiable {
     /// or when there's no sound.
     var waveform: Waveform?
     var isWaveformRead = false
+    /// The waveform read under way, shared by every view that shows this clip (a clip used
+    /// twice on the timeline reads its sound once).
+    @ObservationIgnored var waveformRead: Task<Waveform?, Never>?
     /// Volume keyframes, drawn on the waveform in the clip viewer. The timeline follows them where
     /// it plays the whole source video; subclips have their own (see `Subclip.volume`).
     var volume = VolumeEnvelope()

@@ -194,6 +194,12 @@ struct TimelineInspectorView: View {
                               : "Estimated from the preset's data rate")
                 }
             }
+            ForEach(store.runningTimelineExports) { job in
+                GridRow {
+                    ExportProgressRow(job: job)
+                        .gridCellColumns(2)
+                }
+            }
             GridRow {
                 HStack(spacing: 6) {
                     Spacer(minLength: 0)
@@ -413,5 +419,37 @@ struct TimelineInspectorView: View {
         } message: {
             Text("Saves the aspect ratio, resolution, frame rate, fit, loudness, and export preset so you can load them into other projects. Settings with the same name are replaced.")
         }
+    }
+}
+
+/// A running export's progress bar, with the percentage done and the time left.
+struct ExportProgressRow: View {
+    let job: ExportJob
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 3) {
+            ProgressView(value: job.progress)
+                .progressViewStyle(.linear)
+            HStack {
+                Text("Exporting \(job.presetName)… \(Int((job.progress * 100).rounded(.down)))%")
+                Spacer(minLength: 6)
+                // Ticks once a second so the time left keeps counting down between progress updates.
+                TimelineView(.periodic(from: .now, by: 1)) { context in
+                    Text(Self.remainingText(job.secondsRemaining(now: context.date)))
+                        .monospacedDigit()
+                }
+            }
+            .font(.caption)
+            .foregroundStyle(.secondary)
+        }
+        .help(job.outputURL.lastPathComponent)
+    }
+
+    static func remainingText(_ seconds: Double?) -> String {
+        guard let seconds else { return "Estimating…" }
+        let whole = Int(seconds.rounded())
+        if whole < 60 { return "\(max(whole, 1)) sec left" }
+        if whole < 3600 { return "\(whole / 60):\(String(format: "%02d", whole % 60)) left" }
+        return "\(whole / 3600):\(String(format: "%02d", whole % 3600 / 60)):\(String(format: "%02d", whole % 60)) left"
     }
 }

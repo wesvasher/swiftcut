@@ -21,10 +21,11 @@ nonisolated enum Loudness {
         let asset = AVURLAsset(url: url)
         let tracks = try await asset.loadTracks(withMediaType: .audio)
         guard !tracks.isEmpty else { return nil }
-        let reader = try AVAssetReader(asset: asset)
+        // Used from the reading thread only once set up.
+        nonisolated(unsafe) let reader = try AVAssetReader(asset: asset)
         reader.timeRange = CMTimeRange(start: CMTime(seconds: range.lowerBound, preferredTimescale: 48_000),
                                        end: CMTime(seconds: range.upperBound, preferredTimescale: 48_000))
-        let output = AVAssetReaderAudioMixOutput(audioTracks: tracks, audioSettings: [
+        nonisolated(unsafe) let output = AVAssetReaderAudioMixOutput(audioTracks: tracks, audioSettings: [
             AVFormatIDKey: kAudioFormatLinearPCM,
             AVSampleRateKey: 48_000,
             AVNumberOfChannelsKey: 2,
@@ -37,20 +38,26 @@ nonisolated enum Loudness {
         reader.add(output)
         guard reader.startReading() else { throw reader.error ?? CocoaError(.fileReadUnknown) }
 
-        var meter = IntegratedMeter(sampleRate: 48_000, channels: 2)
-        while let buffer = output.copyNextSampleBuffer() {
-            try Task.checkCancellation()
-            guard let block = CMSampleBufferGetDataBuffer(buffer) else { continue }
-            var length = 0
-            var pointer: UnsafeMutablePointer<CChar>?
-            guard CMBlockBufferGetDataPointer(block, atOffset: 0, lengthAtOffsetOut: nil, totalLengthOut: &length,
-                                              dataPointerOut: &pointer) == noErr, let pointer else { continue }
-            pointer.withMemoryRebound(to: Float.self, capacity: length / 4) { samples in
-                meter.add(interleaved: UnsafeBufferPointer(start: samples, count: length / 4))
+        // The reading blocks its thread, so it runs off Swift's shared ones.
+        return try await BlockingWork.run { isCancelled in
+            var meter = IntegratedMeter(sampleRate: 48_000, channels: 2)
+            while let buffer = output.copyNextSampleBuffer() {
+                if isCancelled() {
+                    reader.cancelReading()
+                    throw CancellationError()
+                }
+                guard let block = CMSampleBufferGetDataBuffer(buffer) else { continue }
+                var length = 0
+                var pointer: UnsafeMutablePointer<CChar>?
+                guard CMBlockBufferGetDataPointer(block, atOffset: 0, lengthAtOffsetOut: nil, totalLengthOut: &length,
+                                                  dataPointerOut: &pointer) == noErr, let pointer else { continue }
+                pointer.withMemoryRebound(to: Float.self, capacity: length / 4) { samples in
+                    meter.add(interleaved: UnsafeBufferPointer(start: samples, count: length / 4))
+                }
             }
+            if reader.status == .failed { throw reader.error ?? CocoaError(.fileReadUnknown) }
+            return meter.result
         }
-        if reader.status == .failed { throw reader.error ?? CocoaError(.fileReadUnknown) }
-        return meter.result
     }
 
     /// LUFS from the sum of the channels' mean squares (after K-weighting).

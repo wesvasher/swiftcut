@@ -115,8 +115,9 @@ nonisolated final class TimelineAudio: @unchecked Sendable {
     static func envelope(of asset: AVAsset) async throws -> Envelope? {
         let tracks = try await asset.loadTracks(withMediaType: .audio)
         guard !tracks.isEmpty else { return nil }
-        let reader = try AVAssetReader(asset: asset)
-        let output = AVAssetReaderAudioMixOutput(audioTracks: tracks, audioSettings: [
+        // Used from the reading thread only once set up.
+        nonisolated(unsafe) let reader = try AVAssetReader(asset: asset)
+        nonisolated(unsafe) let output = AVAssetReaderAudioMixOutput(audioTracks: tracks, audioSettings: [
             AVFormatIDKey: kAudioFormatLinearPCM,
             AVSampleRateKey: 48_000,
             AVNumberOfChannelsKey: 2,
@@ -130,45 +131,51 @@ nonisolated final class TimelineAudio: @unchecked Sendable {
         guard reader.startReading() else { throw reader.error ?? CocoaError(.fileReadUnknown) }
 
         let stepLength = Int(48_000 * Envelope.step)
-        var filters = [KWeighting(sampleRate: 48_000), KWeighting(sampleRate: 48_000)]
-        var envelope = Envelope(peaks: [], power: [])
-        var peaks: [Float] = [0, 0]
-        var sum = 0.0
-        var count = 0
-        while let buffer = output.copyNextSampleBuffer() {
-            try Task.checkCancellation()
-            guard let block = CMSampleBufferGetDataBuffer(buffer) else { continue }
-            var length = 0
-            var pointer: UnsafeMutablePointer<CChar>?
-            guard CMBlockBufferGetDataPointer(block, atOffset: 0, lengthAtOffsetOut: nil, totalLengthOut: &length,
-                                              dataPointerOut: &pointer) == noErr, let pointer else { continue }
-            pointer.withMemoryRebound(to: Float.self, capacity: length / 4) { samples in
-                var index = 0
-                while index + 1 < length / 4 {
-                    for channel in 0..<2 {
-                        let sample = samples[index + channel]
-                        peaks[channel] = max(peaks[channel], abs(sample))
-                        let weighted = filters[channel].process(Double(sample))
-                        sum += weighted * weighted
+        // The reading blocks its thread, so it runs off Swift's shared ones.
+        return try await BlockingWork.run { isCancelled in
+            var filters = [KWeighting(sampleRate: 48_000), KWeighting(sampleRate: 48_000)]
+            var envelope = Envelope(peaks: [], power: [])
+            var peaks: [Float] = [0, 0]
+            var sum = 0.0
+            var count = 0
+            while let buffer = output.copyNextSampleBuffer() {
+                if isCancelled() {
+                    reader.cancelReading()
+                    throw CancellationError()
+                }
+                guard let block = CMSampleBufferGetDataBuffer(buffer) else { continue }
+                var length = 0
+                var pointer: UnsafeMutablePointer<CChar>?
+                guard CMBlockBufferGetDataPointer(block, atOffset: 0, lengthAtOffsetOut: nil, totalLengthOut: &length,
+                                                  dataPointerOut: &pointer) == noErr, let pointer else { continue }
+                pointer.withMemoryRebound(to: Float.self, capacity: length / 4) { samples in
+                    var index = 0
+                    while index + 1 < length / 4 {
+                        for channel in 0..<2 {
+                            let sample = samples[index + channel]
+                            peaks[channel] = max(peaks[channel], abs(sample))
+                            let weighted = filters[channel].process(Double(sample))
+                            sum += weighted * weighted
+                        }
+                        count += 1
+                        if count == stepLength {
+                            envelope.peaks.append(peaks)
+                            envelope.power.append(sum / Double(stepLength))
+                            peaks = [0, 0]
+                            sum = 0
+                            count = 0
+                        }
+                        index += 2
                     }
-                    count += 1
-                    if count == stepLength {
-                        envelope.peaks.append(peaks)
-                        envelope.power.append(sum / Double(stepLength))
-                        peaks = [0, 0]
-                        sum = 0
-                        count = 0
-                    }
-                    index += 2
                 }
             }
+            if count > 0 {
+                envelope.peaks.append(peaks)
+                envelope.power.append(sum / Double(count))
+            }
+            if reader.status == .failed { throw reader.error ?? CocoaError(.fileReadUnknown) }
+            return envelope
         }
-        if count > 0 {
-            envelope.peaks.append(peaks)
-            envelope.power.append(sum / Double(count))
-        }
-        if reader.status == .failed { throw reader.error ?? CocoaError(.fileReadUnknown) }
-        return envelope
     }
 
     func publish(_ level: Level) {

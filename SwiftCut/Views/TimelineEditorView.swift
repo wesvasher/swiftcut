@@ -121,22 +121,24 @@ struct TimelineEditorView: View {
             OutputLevelMeter(audio: store.timelineAudio)
                 .padding(.trailing, 8)
             HStack(spacing: 4) {
+                let range = zoomRange
+                // A little slack, since the fit zoom is recalculated from the window width.
+                let canZoomOut = pointsPerSecond > range.lowerBound * 1.001
+                let canZoomIn = pointsPerSecond < range.upperBound * 0.999
                 Button { zoom(by: 1 / zoomStep) } label: {
                     Image(systemName: "minus.magnifyingglass")
                 }
-                .help("Zoom out")
-                .disabled(pointsPerSecond <= zoomRange.lowerBound)
-                Slider(value: $pointsPerSecond, in: zoomRange)
-                    .frame(width: 120)
-                    .help("Zoom the timeline")
+                .help(canZoomOut ? "Zoom out" : "Zoomed out all the way: the whole timeline is in view")
+                .disabled(!canZoomOut)
+                .foregroundStyle(canZoomOut ? .secondary : .quaternary)
                 Button { zoom(by: zoomStep) } label: {
                     Image(systemName: "plus.magnifyingglass")
                 }
-                .help("Zoom in")
-                .disabled(pointsPerSecond >= zoomRange.upperBound)
+                .help(canZoomIn ? "Zoom in" : "Zoomed in all the way")
+                .disabled(!canZoomIn)
+                .foregroundStyle(canZoomIn ? .secondary : .quaternary)
             }
             .buttonStyle(.borderless)
-            .foregroundStyle(.secondary)
         }
         .padding(.horizontal, padding)
         .padding(.vertical, 8)
@@ -184,8 +186,10 @@ struct TimelineEditorView: View {
     private let zoomStep = 1.5
 
     /// The slider's range. It reaches down far enough to fit a long timeline.
+    /// From the whole timeline in view (all the way out) to 200 points per second.
     private var zoomRange: ClosedRange<Double> {
-        min(5, fitPointsPerSecond)...200
+        let fit = fitPointsPerSecond
+        return fit...max(fit, 200)
     }
 
     private func zoom(by factor: Double) {

@@ -20,6 +20,14 @@ final class ExportJob: Identifiable {
     var progress: Double = 0
     var state: State = .running
     var task: Task<Void, Never>?
+    let started = Date()
+
+    /// Seconds left, judged from the pace so far. `nil` until there's enough to go on.
+    func secondsRemaining(now: Date = .now) -> Double? {
+        let elapsed = now.timeIntervalSince(started)
+        guard isRunning, progress >= 0.02, progress < 1, elapsed >= 2 else { return nil }
+        return elapsed * (1 - progress) / progress
+    }
 
     init(name: String, preset: ExportPreset, outputURL: URL) {
         self.name = name
