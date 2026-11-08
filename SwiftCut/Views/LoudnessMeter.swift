@@ -100,23 +100,41 @@ extension Double {
 
 /// A small stereo level meter for a viewer's output (timeline or clip): one thin bar per channel
 /// showing the loudest sample of the last moment, −60 to 0 dB (green, yellow above −12, red above −3).
+/// The track is tinted and ticked where those zones start, so the safe area shows even in silence.
 struct OutputLevelMeter: View {
     let audio: TimelineAudio
     var help = "The timeline's sound level as it plays (left and right)"
 
-    private static let floor = -60.0
+    static let floor = -60.0
+    /// Where yellow (getting loud) and red (close to clipping) start.
+    static let warning = -12.0
+    static let danger = -3.0
+    /// Faint ticks below the warning zone, every 12 dB.
+    static let minorTicks = [-48.0, -36.0, -24.0]
+
+    /// How far along the bar `decibels` is, 0…1.
+    static func fraction(_ decibels: Double) -> Double {
+        decibels.isFinite ? min(1, max(0, 1 - decibels / floor)) : 0
+    }
+
+    private static let barHeight: CGFloat = 4
+    private static let barSpacing: CGFloat = 2
+    /// How far the zone ticks reach past the bars, above and below.
+    private static let tickOverhang: CGFloat = 2
 
     var body: some View {
         TimelineView(.periodic(from: .now, by: 1.0 / 30)) { _ in
             let peaks = channels(audio.level?.peaks ?? [])
-            VStack(spacing: 2) {
+            VStack(spacing: Self.barSpacing) {
                 ForEach(peaks.indices, id: \.self) { index in
                     bar(peaks[index])
                 }
             }
+            .padding(.vertical, Self.tickOverhang)
+            .overlay { ticks }
         }
         .frame(width: 80)
-        .help(help)
+        .help(help + ". Green is a good level; yellow (above −12 dB) is getting loud; red (above −3 dB) is close to distorting.")
     }
 
     /// Always two bars: mono shows in both, more channels show the first two.
@@ -130,24 +148,54 @@ struct OutputLevelMeter: View {
 
     private func bar(_ decibels: Double) -> some View {
         GeometryReader { geometry in
-            let fraction = decibels.isFinite ? min(1, max(0, 1 - decibels / Self.floor)) : 0
+            let width = geometry.size.width
+            let fraction = Self.fraction(decibels)
+            let warning = Self.fraction(Self.warning) * width, danger = Self.fraction(Self.danger) * width
             ZStack(alignment: .leading) {
+                // The track, tinted where the zones are.
                 Capsule().fill(.quaternary)
+                Rectangle().fill(.yellow.opacity(0.22))
+                    .frame(width: danger - warning)
+                    .offset(x: warning)
+                Rectangle().fill(.red.opacity(0.3))
+                    .frame(width: width - danger)
+                    .offset(x: danger)
                 Capsule()
                     .fill(LinearGradient(stops: [
                         .init(color: .green, location: 0),
-                        .init(color: .green, location: 0.78),
-                        .init(color: .yellow, location: 0.8),   // −12 dB
-                        .init(color: .yellow, location: 0.93),
-                        .init(color: .red, location: 0.95),     // −3 dB
+                        .init(color: .green, location: Self.fraction(Self.warning) - 0.02),
+                        .init(color: .yellow, location: Self.fraction(Self.warning)),
+                        .init(color: .yellow, location: Self.fraction(Self.danger) - 0.02),
+                        .init(color: .red, location: Self.fraction(Self.danger)),
                     ], startPoint: .leading, endPoint: .trailing))
                     // The gradient spans the whole bar; the mask shows the part up to the level.
                     .mask(alignment: .leading) {
-                        Rectangle().frame(width: fraction * geometry.size.width)
+                        Rectangle().frame(width: fraction * width)
                     }
                     .animation(.linear(duration: 1.0 / 30), value: fraction)
             }
+            .clipShape(Capsule())
         }
-        .frame(height: 4)
+        .frame(height: Self.barHeight)
+    }
+
+    /// Lines across both bars: faint ones every 12 dB, and stronger ones where yellow and red start.
+    private var ticks: some View {
+        GeometryReader { geometry in
+            let width = geometry.size.width, height = geometry.size.height
+            ForEach(Self.minorTicks, id: \.self) { db in
+                Rectangle()
+                    .fill(.primary.opacity(0.25))
+                    .frame(width: 1, height: height - Self.tickOverhang * 2)
+                    .position(x: Self.fraction(db) * width, y: height / 2)
+            }
+            ForEach([(Self.warning, Color.yellow), (Self.danger, Color.red)], id: \.0) { db, color in
+                Rectangle()
+                    .fill(color)
+                    .frame(width: 1, height: height)
+                    .position(x: Self.fraction(db) * width, y: height / 2)
+            }
+        }
+        .allowsHitTesting(false)
     }
 }
