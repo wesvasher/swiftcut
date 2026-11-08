@@ -193,6 +193,13 @@ private struct TransportBar: View {
 
                 Spacer(minLength: 0)
 
+                // Where the timeline has its meter: just before the zoom buttons.
+                if clip.hasAudio {
+                    OutputLevelMeter(audio: controller.audio,
+                                     help: "The clip's sound level as it plays (left and right), after its volume keyframes")
+                        .padding(.trailing, 8)
+                }
+
                 zoomControls
             }
 

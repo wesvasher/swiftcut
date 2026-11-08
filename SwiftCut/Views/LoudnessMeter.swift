@@ -98,10 +98,11 @@ extension Double {
     }
 }
 
-/// A small stereo level meter for the timeline's output: one thin bar per channel showing
-/// the loudest sample of the last moment, −60 to 0 dB (green, yellow above −12, red above −3).
+/// A small stereo level meter for a viewer's output (timeline or clip): one thin bar per channel
+/// showing the loudest sample of the last moment, −60 to 0 dB (green, yellow above −12, red above −3).
 struct OutputLevelMeter: View {
     let audio: TimelineAudio
+    var help = "The timeline's sound level as it plays (left and right)"
 
     private static let floor = -60.0
 
@@ -115,7 +116,7 @@ struct OutputLevelMeter: View {
             }
         }
         .frame(width: 80)
-        .help("The timeline's sound level as it plays (left and right)")
+        .help(help)
     }
 
     /// Always two bars: mono shows in both, more channels show the first two.

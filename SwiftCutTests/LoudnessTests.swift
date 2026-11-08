@@ -169,3 +169,28 @@ struct LoudnessTests {
         #expect(abs(try #require(audio.level).peaks[1] - (Loudness.decibels(0.3) - 6)) < 0.2)
     }
 }
+
+/// The clip viewer's level meter reads the clip's sound as it plays.
+struct ClipMeterTests {
+    @Test @MainActor func clipPlayerMeasuresItsSoundWhilePlaying() async throws {
+        let dir = try TestVideo.tempDirectory()
+        let url = try LoudnessTests.tone(in: dir, name: "tone", amplitude: 0.3, seconds: 3)
+        let clip = Clip(url: url)
+        await MediaLoader.load(clip)
+        let controller = ClipPlayerController()
+        controller.load(clip)
+        // Muted so the test is silent; the meter reads the sound before the output.
+        controller.player.isMuted = true
+        #expect(controller.audio.level == nil, "nothing playing yet")
+
+        controller.play()
+        let deadline = Date().addingTimeInterval(5)
+        while controller.audio.level == nil, Date() < deadline {
+            try await Task.sleep(for: .milliseconds(50))
+        }
+        controller.pause()
+        let level = try #require(controller.audio.level)
+        // The tone peaks at about −10.5 dB.
+        #expect(abs((level.peaks.first ?? -.infinity) - Loudness.decibels(0.3)) < 1, "\(level.peaks)")
+    }
+}

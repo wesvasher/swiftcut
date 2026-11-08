@@ -49,6 +49,8 @@ final class ClipPlayerController {
 
     /// Plays the clip's volume keyframes (one span over the whole file, in source time).
     @ObservationIgnored private let volume = TimelineAudio()
+    /// The clip's sound as it plays, after its volume keyframes, for the level meter.
+    var audio: TimelineAudio { volume }
     /// The waveform is tall and shows the volume line to drag (Audio section › Edit Volume).
     var isEditingVolume = false {
         didSet { if !isEditingVolume { selectedKeyframe = nil } }
