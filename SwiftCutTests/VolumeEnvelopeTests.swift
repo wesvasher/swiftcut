@@ -151,4 +151,105 @@ struct VolumeEnvelopeTests {
         let end = try LoudnessTests.measureMix(result, range: 3.5...4.5)
         #expect(end == nil, "silent after the last keyframe")
     }
+
+    // MARK: Dragging a segment
+
+    /// Keyframes at 1 s (−6 dB), 3 s (−12 dB), and 5 s (0 dB).
+    private func threeKeys() -> (VolumeEnvelope, UUID, UUID, UUID) {
+        var envelope = VolumeEnvelope()
+        let a = envelope.addKeyframe(at: 1, smooth: false)
+        let b = envelope.addKeyframe(at: 3, smooth: false)
+        let c = envelope.addKeyframe(at: 5, smooth: false)
+        envelope.move(a, to: 1, gainDB: -6)
+        envelope.move(b, to: 3, gainDB: -12)
+        envelope.move(c, to: 5, gainDB: 0)
+        return (envelope, a, b, c)
+    }
+
+    @Test func segmentsLieBetweenKeyframes() throws {
+        let (envelope, a, b, c) = threeKeys()
+        #expect(envelope.segment(at: 2) == .init(start: a, end: b))
+        #expect(envelope.segment(at: 3) == .init(start: b, end: c))
+        #expect(envelope.segment(at: 4.9) == .init(start: b, end: c))
+        // Before the first and after the last, the line holds level to the clip's edges.
+        #expect(envelope.segment(at: 0.5) == .init(start: nil, end: a))
+        #expect(envelope.segment(at: 9) == .init(start: c, end: nil))
+        #expect(envelope.timeRange(of: .init(start: nil, end: a), duration: 10) == 0...1)
+        #expect(envelope.timeRange(of: .init(start: c, end: nil), duration: 10) == 5...10)
+        #expect(envelope.timeRange(of: .init(start: a, end: b), duration: 10) == 1...3)
+    }
+
+    @Test func draggingTheLineWithoutKeyframesSetsTheWholeClip() throws {
+        var envelope = VolumeEnvelope()
+        let whole = try #require(envelope.segment(at: 4))
+        #expect(whole == .init(start: nil, end: nil))
+        #expect(envelope.timeRange(of: whole, duration: 10) == 0...10)
+        #expect(envelope.label(of: whole) == "0.0 dB")
+
+        // Dragging adds one keyframe at the start, at the level already there (0 dB).
+        let segment = envelope.prepareToDrag(whole)
+        #expect(envelope.keyframes.count == 1)
+        let key = try #require(envelope.keyframes.first)
+        #expect(key.time == 0 && abs(key.gainDB) < 1e-9)
+        #expect(segment == .init(start: key.id, end: nil))
+        #expect(envelope.timeRange(of: segment, duration: 10) == 0...10)
+
+        envelope.shiftLevels(from: envelope.positions(of: segment), by: -0.1)
+        #expect(envelope.gainDB(at: 0) < 0)
+        #expect(abs(envelope.gainDB(at: 9) - envelope.gainDB(at: 0)) < 1e-9)
+
+        // Segments that already have keyframes are left as they are.
+        #expect(envelope.prepareToDrag(segment) == segment)
+        #expect(envelope.keyframes.count == 1)
+    }
+
+    @Test func draggingASegmentMovesBothEndsTogether() throws {
+        var (envelope, a, b, c) = threeKeys()
+        let segment = VolumeEnvelope.Segment(start: a, end: b)
+        let start = envelope.positions(of: segment)
+        envelope.shiftLevels(from: start, by: 0.05)
+        let newA = try #require(envelope.keyframe(a)), newB = try #require(envelope.keyframe(b))
+        #expect(abs(VolumeEnvelope.position(forDB: newA.gainDB) - (start[a]! + 0.05)) < 1e-9)
+        #expect(abs(VolumeEnvelope.position(forDB: newB.gainDB) - (start[b]! + 0.05)) < 1e-9)
+        // Both got louder, the fade still goes down, and the times and the other keyframe stay put.
+        #expect(newA.gainDB > -6 && newB.gainDB > -12 && newA.gainDB > newB.gainDB)
+        #expect(newA.time == 1 && newB.time == 3)
+        #expect(envelope.keyframe(c)?.gainDB == 0)
+        // Dragging always starts from the levels when the drag began, not where it's got to.
+        envelope.shiftLevels(from: start, by: 0)
+        #expect(abs(envelope.keyframe(a)!.gainDB - -6) < 1e-9)
+    }
+
+    @Test func draggingStopsAtTheTopAndBottomKeepingTheShape() throws {
+        var (envelope, a, b, _) = threeKeys()
+        let start = envelope.positions(of: .init(start: a, end: b))
+        envelope.shiftLevels(from: start, by: 5)
+        // The louder end reaches the top; the other keeps the same gap below it.
+        #expect(abs(envelope.keyframe(a)!.gainDB - VolumeEnvelope.maxDB) < 1e-9)
+        let gap = start[a]! - start[b]!
+        #expect(abs(VolumeEnvelope.position(forDB: envelope.keyframe(b)!.gainDB) - (1 - gap)) < 1e-9)
+
+        envelope.shiftLevels(from: start, by: -5)
+        // The quieter end reaches silence.
+        #expect(envelope.keyframe(b)!.gainDB == VolumeEnvelope.minDB)
+        #expect(envelope.keyframe(a)!.gainDB > VolumeEnvelope.minDB)
+    }
+
+    @Test func edgeSegmentsMoveOneKeyframe() throws {
+        var (envelope, a, b, _) = threeKeys()
+        let segment = try #require(envelope.segment(at: 0))
+        #expect(segment.keyframeIDs == [a])
+        envelope.shiftLevels(from: envelope.positions(of: segment), by: -0.1)
+        #expect(envelope.keyframe(a)!.gainDB < -6)
+        #expect(envelope.keyframe(b)!.gainDB == -12)
+    }
+
+    @Test func segmentLabels() {
+        let (envelope, a, b, c) = threeKeys()
+        #expect(envelope.label(of: .init(start: a, end: b)) == "−6.0 dB → −12.0 dB")
+        #expect(envelope.label(of: .init(start: c, end: nil)) == "0.0 dB")
+        var flat = envelope
+        flat.move(b, to: 3, gainDB: -6)
+        #expect(flat.label(of: .init(start: a, end: b)) == "−6.0 dB")
+    }
 }

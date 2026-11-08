@@ -174,6 +174,76 @@ nonisolated struct VolumeEnvelope: Codable, Hashable, Sendable {
         keyframes[index].curve = min(1, max(0, curve))
     }
 
+    // MARK: Segments
+
+    /// A stretch of the line: between two keyframes, or before the first or after the last
+    /// (a `nil` end: the line holds its level out to the clip's edge). Without keyframes, the
+    /// whole line (both ends `nil`).
+    struct Segment: Hashable, Sendable {
+        var start: UUID?
+        var end: UUID?
+
+        /// The keyframes that set its level: one or two.
+        var keyframeIDs: [UUID] { [start, end].compactMap { $0 } }
+    }
+
+    /// The segment at `time`.
+    func segment(at time: Double) -> Segment? {
+        guard let first = keyframes.first, let last = keyframes.last else { return Segment(start: nil, end: nil) }
+        if time < first.time { return Segment(start: nil, end: first.id) }
+        if time >= last.time { return Segment(start: last.id, end: nil) }
+        var low = 0, high = keyframes.count - 1
+        while high - low > 1 {
+            let middle = (low + high) / 2
+            if keyframes[middle].time <= time { low = middle } else { high = middle }
+        }
+        return Segment(start: keyframes[low].id, end: keyframes[low + 1].id)
+    }
+
+    /// The times a segment covers, in a clip `duration` seconds long.
+    func timeRange(of segment: Segment, duration: Double) -> ClosedRange<Double> {
+        let start = segment.start.flatMap(keyframe)?.time ?? 0
+        let end = segment.end.flatMap(keyframe)?.time ?? duration
+        return min(start, end)...max(start, end)
+    }
+
+    /// Gets a segment ready to drag. The whole line, without keyframes, gets one at the start
+    /// (so the clip's whole volume moves); others are returned as they are.
+    mutating func prepareToDrag(_ segment: Segment) -> Segment {
+        guard segment.keyframeIDs.isEmpty else { return segment }
+        if let first = keyframes.first { return Segment(start: first.id, end: nil) }
+        return Segment(start: addKeyframe(at: 0), end: nil)
+    }
+
+    /// The fader positions of a segment's keyframes, to drag it from.
+    func positions(of segment: Segment) -> [UUID: Double] {
+        Dictionary(uniqueKeysWithValues: segment.keyframeIDs.compactMap { id in
+            keyframe(id).map { (id, Self.position(forDB: $0.gainDB)) }
+        })
+    }
+
+    /// Moves keyframes up or down together: each goes to its position in `start` plus `delta`
+    /// (in fader steps). The move stops when one reaches the top or bottom, so the segment
+    /// keeps its shape.
+    mutating func shiftLevels(from start: [UUID: Double], by delta: Double) {
+        guard let lowest = start.values.min(), let highest = start.values.max() else { return }
+        let delta = min(1 - highest, max(-lowest, delta))
+        for (id, position) in start {
+            guard let index = keyframes.firstIndex(where: { $0.id == id }) else { continue }
+            let db = Self.db(forPosition: position + delta)
+            keyframes[index].gainDB = db.isFinite ? min(Self.maxDB, max(Self.minDB, db)) : Self.minDB
+        }
+    }
+
+    /// "−6.0 dB", or "−6.0 dB → −12.0 dB" for a fade.
+    func label(of segment: Segment) -> String {
+        let levels = segment.keyframeIDs.compactMap(keyframe).map(\.gainDB)
+        guard let first = levels.first else { return Self.label(forDB: 0) }
+        let firstLabel = Self.label(forDB: first)
+        guard let last = levels.last, Self.label(forDB: last) != firstLabel else { return firstLabel }
+        return "\(firstLabel) → \(Self.label(forDB: last))"
+    }
+
     mutating func remove(_ id: UUID) {
         keyframes.removeAll { $0.id == id }
     }

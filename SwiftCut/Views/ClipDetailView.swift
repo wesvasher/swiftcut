@@ -938,7 +938,9 @@ private struct FrameBlock: View {
 
 /// The clip's volume as a line over the waveform. While editing, its keyframes can be dragged
 /// (up and down for the level, sideways to move them; Shift for fine control) and right-clicked
-/// to switch between linear and spline or delete them. Clicking one selects it. Only the drawn part of the strip is drawn.
+/// to switch between linear and spline or delete them. Clicking one selects it. The line between
+/// keyframes lights up under the pointer and drags up and down as a whole (without keyframes, the
+/// whole line does, adding one at the start). Only the drawn part of the strip is drawn.
 private struct VolumeLine: View {
     let controller: ClipPlayerController
     let isEditing: Bool
@@ -959,12 +961,37 @@ private struct VolumeLine: View {
     @State private var dragStart: DragStart?
     @State private var hovered: UUID?
 
+    /// A segment being dragged: its keyframes' levels when the drag (or the current speed) began.
+    private struct SegmentDrag {
+        var segment: VolumeEnvelope.Segment
+        var positions: [UUID: Double]
+        var translation: CGFloat
+        var speed: Double
+    }
+
+    /// The segment under the pointer, lit up to show it can be dragged.
+    @State private var hoveredSegment: VolumeEnvelope.Segment?
+    @State private var segmentDrag: SegmentDrag?
+    /// Where the pointer is, for the segment's level label.
+    @State private var pointer: CGPoint?
+    @State private var isShowingResizeCursor = false
+    /// How close to the line (in points, either side) the pointer must be to grab it.
+    private let lineGrabDistance: CGFloat = 5
+
+    /// The segment lit up: the one being dragged, or else the one under the pointer.
+    private var activeSegment: VolumeEnvelope.Segment? {
+        segmentDrag?.segment ?? (dragStart == nil && hovered == nil ? hoveredSegment : nil)
+    }
+
     /// Keyframes stay this far from the top and bottom, so they can be grabbed at the extremes.
     private let inset: CGFloat = 6
     private let keySize: CGFloat = 11
 
     private var usableHeight: CGFloat { max(1, height - inset * 2) }
     private func x(_ time: Double) -> CGFloat { CGFloat(time / duration) * contentWidth - drawn.lowerBound }
+    private func time(atX x: CGFloat) -> Double {
+        min(max(0, Double((drawn.lowerBound + x) / contentWidth) * duration), duration)
+    }
     private func y(_ position: Double) -> CGFloat { inset + (1 - CGFloat(position)) * usableHeight }
 
     var body: some View {
@@ -987,6 +1014,19 @@ private struct VolumeLine: View {
                 .shadow(color: .black.opacity(0.5), radius: 1)
 
             if isEditing {
+                if let segment = activeSegment {
+                    segmentHighlight(segment, envelope, width: width)
+                }
+                // Grabs the line itself (a few points either side), between the keyframes.
+                Color.clear
+                    .contentShape(line(envelope, width: width)
+                        .strokedPath(StrokeStyle(lineWidth: lineGrabDistance * 2, lineCap: .round, lineJoin: .round)))
+                    .onContinuousHover { phase in hover(phase, envelope) }
+                    .gesture(segmentDragGesture)
+                    .help("Drag to move this part of the line up or down; hold Shift for fine control. Double-click to add a keyframe.")
+            }
+
+            if isEditing {
                 ForEach(visibleKeys(envelope, width: width)) { key in
                     handle(key)
                 }
@@ -995,19 +1035,98 @@ private struct VolumeLine: View {
         .frame(width: width, height: height, alignment: .topLeading)
         .allowsHitTesting(isEditing)
         .accessibilityHidden(!isEditing)
+        .onChange(of: isEditing && activeSegment != nil) { _, show in setResizeCursor(show) }
+        .onDisappear { setResizeCursor(false) }
     }
 
-    /// The line across the drawn part, a point every two points along.
-    private func line(_ envelope: VolumeEnvelope, width: CGFloat) -> Path {
-        Path { path in
-            var started = false
-            var column: CGFloat = 0
-            while column <= width + 2 {
-                let time = Double((drawn.lowerBound + column) / contentWidth) * duration
-                let point = CGPoint(x: column, y: y(envelope.position(at: time)))
-                if started { path.addLine(to: point) } else { path.move(to: point); started = true }
+    // MARK: Dragging a segment
+
+    private func hover(_ phase: HoverPhase, _ envelope: VolumeEnvelope) {
+        guard case .active(let point) = phase else {
+            if segmentDrag == nil { hoveredSegment = nil }
+            return
+        }
+        pointer = point
+        guard segmentDrag == nil else { return }
+        let time = time(atX: point.x)
+        let isNear = abs(point.y - y(envelope.position(at: time))) <= lineGrabDistance
+        let segment = isNear ? envelope.segment(at: time) : nil
+        if hoveredSegment != segment { hoveredSegment = segment }
+    }
+
+    private var segmentDragGesture: some Gesture {
+        DragGesture(minimumDistance: 1)
+            .onChanged { value in
+                let speed = NSEvent.modifierFlags.contains(.shift) ? 0.1 : 1
+                let envelope = controller.volumeEnvelope
+                pointer = value.location
+                if segmentDrag == nil {
+                    guard let found = envelope.segment(at: time(atX: value.startLocation.x)) else { return }
+                    // Without keyframes, this adds one at the start for the whole clip's volume.
+                    let segment = controller.volumeEnvelope.prepareToDrag(found)
+                    let envelope = controller.volumeEnvelope
+                    controller.selectedKeyframe = nil
+                    segmentDrag = SegmentDrag(segment: segment, positions: envelope.positions(of: segment),
+                                              translation: value.translation.height, speed: speed)
+                } else if let drag = segmentDrag, drag.speed != speed {
+                    // Shift pressed or let go mid-drag: carry on from here at the new speed.
+                    segmentDrag = SegmentDrag(segment: drag.segment, positions: envelope.positions(of: drag.segment),
+                                              translation: value.translation.height, speed: speed)
+                }
+                guard let drag = segmentDrag else { return }
+                let dy = value.translation.height - drag.translation
+                controller.volumeEnvelope.shiftLevels(from: drag.positions, by: -Double(dy / usableHeight) * drag.speed)
+            }
+            .onEnded { _ in
+                hoveredSegment = segmentDrag?.segment
+                segmentDrag = nil
+            }
+    }
+
+    /// The segment drawn thicker in the accent color, with its level by the pointer.
+    private func segmentHighlight(_ segment: VolumeEnvelope.Segment, _ envelope: VolumeEnvelope, width: CGFloat) -> some View {
+        let range = envelope.timeRange(of: segment, duration: duration)
+        let from = max(0, x(range.lowerBound)), to = min(width, x(range.upperBound))
+        let labelX = min(max(pointer?.x ?? (from + to) / 2, from), to)
+        let labelY = y(envelope.position(at: time(atX: labelX)))
+        return ZStack(alignment: .topLeading) {
+            line(envelope, width: width, from: from, to: to)
+                .stroke(Color.accentColor, style: StrokeStyle(lineWidth: 3, lineCap: .round, lineJoin: .round))
+                .shadow(color: Color.accentColor.opacity(0.8), radius: 3)
+            Text(envelope.label(of: segment))
+                .font(.caption2.monospacedDigit().weight(.medium))
+                .padding(.horizontal, 5)
+                .padding(.vertical, 1)
+                .background(.black.opacity(0.75), in: Capsule())
+                .foregroundStyle(.white)
+                .fixedSize()
+                .position(x: labelX, y: labelY > 24 ? labelY - 14 : labelY + 14)
+        }
+        .frame(width: width, height: height, alignment: .topLeading)
+        .allowsHitTesting(false)
+    }
+
+    /// The up-and-down arrows while the pointer is on a segment or dragging one.
+    private func setResizeCursor(_ show: Bool) {
+        guard show != isShowingResizeCursor else { return }
+        isShowingResizeCursor = show
+        if show { NSCursor.resizeUpDown.push() } else { NSCursor.pop() }
+    }
+
+    /// The line across the drawn part (or from `from` to `to`), a point every two points along.
+    private func line(_ envelope: VolumeEnvelope, width: CGFloat, from: CGFloat = 0, to: CGFloat? = nil) -> Path {
+        let end = to ?? width + 2
+        let point = { (column: CGFloat) in
+            CGPoint(x: column, y: y(envelope.position(at: Double((drawn.lowerBound + column) / contentWidth) * duration)))
+        }
+        return Path { path in
+            path.move(to: point(from))
+            var column = from + 2
+            while column < end {
+                path.addLine(to: point(column))
                 column += 2
             }
+            path.addLine(to: point(end))
         }
     }
 
