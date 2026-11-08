@@ -3,6 +3,8 @@ import SwiftUI
 /// The master volume, in the bar above the video: mute, a slider, and a button back to the monitoring level.
 struct MonitorVolumeControl: View {
     @Bindable private var volume = MonitorVolume.shared
+    /// Off in a narrow viewer: just the mute and monitoring level buttons.
+    var showsSlider = true
 
     var body: some View {
         HStack(spacing: 6) {
@@ -15,21 +17,24 @@ struct MonitorVolumeControl: View {
             .frame(width: 22)
             .help(volume.isMuted ? "Unmute" : "Mute")
 
-            Text(readout)
-                .font(.caption.monospacedDigit())
-                .foregroundStyle(.secondary)
-                .frame(width: 44, alignment: .trailing)
-                .contentTransition(.numericText(value: volume.decibels))
+            if showsSlider {
+                Text(readout)
+                    .font(.caption.monospacedDigit())
+                    .foregroundStyle(.secondary)
+                    .lineLimit(1)
+                    .frame(width: 44, alignment: .trailing)
+                    .contentTransition(.numericText(value: volume.decibels))
 
-            Slider(value: $volume.decibels, in: MonitorVolume.range) {
-                Text("Volume")
-            } onEditingChanged: { editing in
-                if editing { volume.isMuted = false }
+                Slider(value: $volume.decibels, in: MonitorVolume.range) {
+                    Text("Volume")
+                } onEditingChanged: { editing in
+                    if editing { volume.isMuted = false }
+                }
+                .labelsHidden()
+                .controlSize(.small)
+                .frame(width: 90)
+                .help("Volume. For listening only; exports aren't affected.")
             }
-            .labelsHidden()
-            .controlSize(.small)
-            .frame(width: 90)
-            .help("Volume. For listening only; exports aren't affected.")
 
             Button("Monitoring Level", systemImage: "ear") {
                 withAnimation { volume.setMonitoringLevel() }

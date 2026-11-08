@@ -3,6 +3,12 @@ import SwiftUI
 
 /// The bar above a video viewer (clip viewer and timeline): the picture size, then Copy Frame,
 /// Export Images, quality, zoom, and the master volume on the right. `leading` holds controls only one viewer has.
+///
+/// Text never wraps. When the viewer is too narrow for everything, the bar drops parts in
+/// steps (`Compactness`): the volume slider, then the picture size, then the quality's name,
+/// then the volume buttons.
+/// (The viewer itself can't have a minimum width: beside the inspector that made the window
+/// re-layout in a loop until it locked up.)
 struct VideoToolbar<Leading: View>: View {
     /// The picture's size in pixels, or `nil` if not known yet.
     let pictureSize: CGSize?
@@ -16,13 +22,38 @@ struct VideoToolbar<Leading: View>: View {
     let exportImages: () -> Void
     @ViewBuilder var leading: () -> Leading
 
+    /// How much the bar leaves out to fit: each step drops one more part.
+    enum Compactness: Int, CaseIterable {
+        case full, noVolumeSlider, noPictureSize, qualityIconOnly, noVolume
+    }
+
     var body: some View {
+        // The first that fits; the last is used (and clipped) when nothing does.
+        ViewThatFits(in: .horizontal) {
+            ForEach(Compactness.allCases, id: \.self) { compactness in
+                bar(compactness)
+            }
+        }
+        // Never asks the window for a minimum width; a bar too wide is clipped instead.
+        .frame(minWidth: 0, maxWidth: .infinity, alignment: .leading)
+        .padding(.horizontal, 12)
+        .padding(.vertical, 5)
+        .frame(minWidth: 0, maxWidth: .infinity, alignment: .leading)
+        .clipped()
+        .background(.bar)
+    }
+
+    private func bar(_ compactness: Compactness) -> some View {
         HStack(spacing: 12) {
             leading()
-            if let pictureSize, pictureSize != .zero {
+                .lineLimit(1)
+                .fixedSize()
+            if compactness.rawValue < Compactness.noPictureSize.rawValue, let pictureSize, pictureSize != .zero {
                 Text("\(Int(pictureSize.width)) × \(Int(pictureSize.height))")
                     .font(.callout.monospacedDigit())
                     .foregroundStyle(.secondary)
+                    .lineLimit(1)
+                    .fixedSize()
             }
             Spacer(minLength: 8)
             Button("Copy Frame", systemImage: "doc.on.doc", action: copyFrame)
@@ -35,15 +66,14 @@ struct VideoToolbar<Leading: View>: View {
                 .buttonStyle(.borderless)
                 .disabled(!canCopy || isExporting)
                 .help("Save the full frame, and the part in view, as PNG images in the project's folder")
-            PreviewQualityMenu(quality: $quality)
+            PreviewQualityMenu(quality: $quality, showsTitle: compactness.rawValue < Compactness.qualityIconOnly.rawValue)
                 .help(qualityHelp)
             ViewerZoomControl(zoom: $zoom)
-            Divider().frame(height: 14)
-            MonitorVolumeControl()
+            if compactness != .noVolume {
+                Divider().frame(height: 14)
+                MonitorVolumeControl(showsSlider: compactness == .full)
+            }
         }
-        .padding(.horizontal, 12)
-        .padding(.vertical, 5)
-        .background(.bar)
     }
 }
 
@@ -59,6 +89,8 @@ extension VideoToolbar where Leading == EmptyView {
 /// Picks the preview quality: full, or a smaller picture that plays more easily.
 private struct PreviewQualityMenu: View {
     @Binding var quality: PreviewQuality
+    /// Off in a narrow viewer: just the icon.
+    var showsTitle = true
 
     var body: some View {
         Menu {
@@ -70,12 +102,25 @@ private struct PreviewQualityMenu: View {
             .pickerStyle(.inline)
         } label: {
             Label(quality.title, systemImage: quality == .full ? "sparkles.tv" : "gauge.with.dots.needle.33percent")
-                .labelStyle(.titleAndIcon)
+                .labelStyle(TitleAndIconOrIcon(showsTitle: showsTitle))
                 .font(.callout.monospacedDigit())
         }
         .menuStyle(.borderlessButton)
         .fixedSize()
         .accessibilityLabel("Preview Quality: \(quality.menuTitle)")
+    }
+}
+
+/// Title and icon, or the icon alone.
+private struct TitleAndIconOrIcon: LabelStyle {
+    let showsTitle: Bool
+
+    func makeBody(configuration: Configuration) -> some View {
+        if showsTitle {
+            Label(configuration).labelStyle(.titleAndIcon)
+        } else {
+            Label(configuration).labelStyle(.iconOnly)
+        }
     }
 }
 
