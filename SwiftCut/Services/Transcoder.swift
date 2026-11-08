@@ -326,7 +326,17 @@ nonisolated private final class Pump: @unchecked Sendable {
              onFailure: @escaping @Sendable () -> Void) async {
         await withCheckedContinuation { (continuation: CheckedContinuation<Void, Never>) in
             queue.async { [self] in
+                // Stopped (cancelled, or another pump failed) before it started: the input is
+                // already marked finished, and asking it for more after that throws and crashes.
+                if isDone {
+                    continuation.resume()
+                    return
+                }
                 self.continuation = continuation
+                if isCancelled() {
+                    finish()
+                    return
+                }
                 input.requestMediaDataWhenReady(on: queue) { [self] in
                     while !isDone && input.isReadyForMoreMediaData {
                         if isCancelled() {

@@ -147,6 +147,22 @@ struct ExportPresetExportTests {
         }
     }
 
+    /// Cancels many times right around the start, where cancelling before the export began
+    /// feeding its tracks used to crash the app.
+    @Test func cancellingAsTheExportStartsDoesNotCrash() async throws {
+        let dir = try TestVideo.tempDirectory()
+        let source = try await TestVideo.make(in: dir, name: "short", seconds: 2, size: CGSize(width: 640, height: 360), audio: true)
+        let manager = ExportManager.test()
+        for attempt in 0..<120 {
+            let job = manager.export(asset: AVURLAsset(url: source), name: "out\(attempt)", preset: .builtIn("ProRes 422"), folder: dir)
+            // From right away to 60 ms in, half a millisecond apart.
+            try await Task.sleep(for: .microseconds(attempt * 500))
+            job.cancel()
+            await job.task?.value
+            #expect(job.state == .cancelled || job.state == .finished, "attempt \(attempt): \(job.state)")
+        }
+    }
+
     @Test func audioOnlyPresetOnSilentClipFailsClearly() async throws {
         let dir = try TestVideo.tempDirectory()
         let source = try await TestVideo.make(in: dir, name: "silent", seconds: 1, size: CGSize(width: 320, height: 240))
