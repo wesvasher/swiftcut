@@ -33,6 +33,7 @@ struct TimelineEditorView: View {
                                 isSubclip: item.subclipID != nil,
                                 range: store.trimRange(of: item),
                                 volume: store.volume(of: item),
+                                gainDB: store.audioPlan(for: item).gainDB,
                                 isSelected: item.id == store.selectedTimelineItemID
                             )
                             .frame(width: width(of: item))
@@ -342,6 +343,8 @@ private struct TimelineClipView: View {
     let range: ClosedRange<Double>
     /// The volume keyframes it plays with (its subclip's own, or the source video's).
     let volume: VolumeEnvelope
+    /// The timeline's change to its volume (Match Loudness and the clip's own adjustment), in dB.
+    let gainDB: Double
     let isSelected: Bool
 
     var body: some View {
@@ -399,7 +402,7 @@ private struct TimelineClipView: View {
         let start = CGFloat(range.lowerBound / duration) * fullWidth
         return WaveformView(waveform: clip.waveform, isReading: clip.hasAudio && !clip.isWaveformRead,
                             contentWidth: fullWidth, drawn: start...(start + max(1, width)),
-                            volume: volume, duration: duration, cornerRadius: 0)
+                            volume: volume, duration: duration, gainDB: gainDB, cornerRadius: 0)
     }
 }
 
