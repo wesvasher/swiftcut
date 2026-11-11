@@ -77,6 +77,8 @@ nonisolated struct ProjectFile: Codable, Equatable, Sendable {
         var denoiseStrength = 0.5
         var upscale: UpscaleMode = .off
         var sharpen = 0.0
+        var filmGrain = 0.0
+        var filmGrainSize = 1.0
         var lutID: UUID?
         var lutIntensity = 1.0
         var lutEnabled = true
@@ -115,6 +117,8 @@ nonisolated struct ProjectFile: Codable, Equatable, Sendable {
             denoiseStrength = try c.decodeIfPresent(Double.self, forKey: .denoiseStrength) ?? 0.5
             upscale = try c.decodeIfPresent(UpscaleMode.self, forKey: .upscale) ?? .off
             sharpen = try c.decodeIfPresent(Double.self, forKey: .sharpen) ?? 0
+            filmGrain = (try? c.decodeIfPresent(Double.self, forKey: .filmGrain)) ?? 0
+            filmGrainSize = (try? c.decodeIfPresent(Double.self, forKey: .filmGrainSize)) ?? 1
             lutID = try c.decodeIfPresent(UUID.self, forKey: .lutID)
             lutIntensity = try c.decodeIfPresent(Double.self, forKey: .lutIntensity) ?? 1
             lutEnabled = try c.decodeIfPresent(Bool.self, forKey: .lutEnabled) ?? true

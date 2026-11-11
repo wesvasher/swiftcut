@@ -38,6 +38,8 @@ nonisolated struct EnhanceSettings: Hashable, Sendable {
     var upscale: UpscaleMode = .off
     /// Sharpening amount 0…1; 0 is off.
     var sharpen: Float = 0
+    /// Film grain, added after sharpening; `nil` for off.
+    var grain: FilmGrain?
     /// Color LUT (Color section), applied before the grade and sharpening.
     var lut: AppliedLUT?
     /// Creative look (Color section), applied after the LUT.
@@ -77,7 +79,7 @@ nonisolated struct EnhanceSettings: Hashable, Sendable {
 
     /// Anything from the Effects section (as opposed to Timing).
     var hasEffects: Bool {
-        denoiseStrength != nil || upscale != .off || sharpen > 0
+        denoiseStrength != nil || upscale != .off || sharpen > 0 || grain != nil
     }
 
     /// The same settings with the Effects section turned off, for "Show Original". The framing
@@ -496,8 +498,9 @@ nonisolated final class EnhancePipeline {
         if scaler != nil {
             picture = try upscale(picture, time: time, isContinuous: isContinuous)
         }
-        if settings.sharpen > 0 || instruction.color != nil || instruction.layout != nil {
-            try finish(picture, into: output)
+        if settings.sharpen > 0 || settings.grain != nil || instruction.color != nil || instruction.layout != nil {
+            // The output time picks the grain pattern: each frame (and field) its own, the same every time.
+            try finish(picture, into: output, frame: Int((time.seconds * 1000).rounded()))
         } else {
             try copy(picture, into: output)
         }
@@ -602,8 +605,8 @@ nonisolated final class EnhancePipeline {
 
     // MARK: Sharpening and output
 
-    /// Color LUT, grade, sharpening, then the scale and position, with Core Image.
-    private func finish(_ picture: CVPixelBuffer, into output: CVPixelBuffer) throws {
+    /// Color LUT, grade, sharpening, film grain, then the scale and position, with Core Image.
+    private func finish(_ picture: CVPixelBuffer, into output: CVPixelBuffer, frame: Int) throws {
         if scratch == nil {
             scratch = try Self.buffer(from: Self.pool(width: CVPixelBufferGetWidth(output), height: CVPixelBufferGetHeight(output),
                                                       format: kCVPixelFormatType_32BGRA))
@@ -628,6 +631,11 @@ nonisolated final class EnhancePipeline {
             filter.setValue(Double(settings.upscale.factor) * instruction.previewScale, forKey: kCIInputRadiusKey)
             guard let sharpened = filter.outputImage?.cropped(to: original.extent) else { throw EnhanceError.failed("Couldn't sharpen.") }
             image = sharpened
+        }
+
+        if let grain = settings.grain {
+            image = FilmGrainStage.apply(image, grain: grain, frame: frame,
+                                         scale: Double(settings.upscale.factor) * instruction.previewScale, extent: original.extent)
         }
 
         if let live = instruction.layout {

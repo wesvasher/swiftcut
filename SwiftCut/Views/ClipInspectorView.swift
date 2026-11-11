@@ -183,6 +183,91 @@ struct ClipInspectorView: View {
         }
     }
 
+    // MARK: Effect rows
+
+    @ViewBuilder
+    private var reduceNoiseRows: some View {
+        GridRow {
+            InspectorLabel("Reduce Noise")
+            Toggle("On", isOn: $clip.denoise)
+                .toggleStyle(.switch)
+                .disabled(!Enhancer.canReduceNoise)
+                .help(Enhancer.canReduceNoise
+                      ? "Removes tape noise and grain by comparing each frame with its neighbors."
+                      : "This Mac doesn't support Apple's noise filter.")
+        }
+        if clip.denoise {
+            GridRow {
+                InspectorLabel("Strength")
+                HStack(spacing: 6) {
+                    Slider(value: $clip.denoiseStrength, in: 0.1...1)
+                    Text("\(Int((clip.denoiseStrength * 100).rounded()))%")
+                        .monospacedDigit()
+                        .frame(width: 34, alignment: .trailing)
+                }
+            }
+        }
+    }
+
+    @ViewBuilder
+    private var enhanceRows: some View {
+        GridRow {
+            InspectorLabel("Resolution")
+            Picker("Enhance", selection: $clip.upscale) {
+                ForEach(UpscaleMode.allCases) { mode in
+                    Text(mode.title)
+                        .tag(mode)
+                        .selectionDisabled(!Enhancer.canUpscale(mode, displaySize: clip.displaySize))
+                }
+            }
+            .labelsHidden()
+            .fixedSize()
+            .help("Increases resolution with Apple's machine-learning video scaler.")
+        }
+        if clip.upscale != .off {
+            InspectorRow("Output", dimensions(clip.outputSize))
+        }
+        if clip.upscale == .best {
+            GridRow {
+                Color.clear.gridCellUnsizedAxes([.horizontal, .vertical])
+                ModelStatusView(size: clip.displaySize)
+            }
+        }
+    }
+
+    private var sharpenRows: some View {
+        GridRow {
+            InspectorLabel("Amount")
+            PercentControl(percent: $clip.sharpenPercent, presets: Clip.sharpenPresets,
+                           step: Clip.sharpenStep, noun: "sharpening")
+        }
+        .help("A light final sharpen. Too much makes tape noise stand out.")
+    }
+
+    @ViewBuilder
+    private var filmGrainRows: some View {
+        GridRow {
+            InspectorLabel("Strength")
+            PercentControl(percent: $clip.filmGrainPercent, presets: Clip.grainPresets, noun: "grain")
+        }
+        .help("Adds fine, moving speckle like film stock, strongest in the midtones. A little hides banding and makes video look less digital.")
+        GridRow {
+            InspectorLabel("Size")
+            Picker("Size", selection: Binding(
+                get: { Clip.grainSizes.min { abs($0.size - clip.filmGrainSize) < abs($1.size - clip.filmGrainSize) }?.size ?? 1 },
+                set: { clip.filmGrainSize = $0 }
+            )) {
+                ForEach(Clip.grainSizes, id: \.size) { choice in
+                    Text(choice.title).tag(choice.size)
+                }
+            }
+            .labelsHidden()
+            .fixedSize()
+            .disabled(clip.filmGrainPercent == 0)
+            .help("Fine grain looks like modern film stock; coarse grain like old or pushed film.")
+        }
+    }
+
     /// Picture effects: noise, resolution, sharpening.
     @ViewBuilder
     private var effects: some View {
@@ -193,56 +278,16 @@ struct ClipInspectorView: View {
         } content: {
             if clip.canEnhance {
                 GridRow {
-                    InspectorLabel("Reduce Noise")
-                    Toggle("On", isOn: $clip.denoise)
-                        .toggleStyle(.switch)
-                        .disabled(!Enhancer.canReduceNoise)
-                        .help("Removes tape noise and grain by comparing each frame with its neighbors.")
-                }
-                if clip.denoise {
-                    GridRow {
-                        InspectorLabel("Strength")
-                        HStack(spacing: 6) {
-                            Slider(value: $clip.denoiseStrength, in: 0.1...1)
-                            Text("\(Int((clip.denoiseStrength * 100).rounded()))%")
-                                .monospacedDigit()
-                                .frame(width: 34, alignment: .trailing)
-                        }
+                    VStack(alignment: .leading, spacing: 0) {
+                        EffectGroup(kind: .reduceNoise, clip: clip) { reduceNoiseRows }
+                        Divider()
+                        EffectGroup(kind: .enhance, clip: clip) { enhanceRows }
+                        Divider()
+                        EffectGroup(kind: .sharpen, clip: clip) { sharpenRows }
+                        Divider()
+                        EffectGroup(kind: .filmGrain, clip: clip) { filmGrainRows }
                     }
-                }
-
-                GridRow {
-                    InspectorLabel("Enhance")
-                    Picker("Enhance", selection: $clip.upscale) {
-                        ForEach(UpscaleMode.allCases) { mode in
-                            Text(mode.title)
-                                .tag(mode)
-                                .selectionDisabled(!Enhancer.canUpscale(mode, displaySize: clip.displaySize))
-                        }
-                    }
-                    .labelsHidden()
-                    .fixedSize()
-                    .help("Increases resolution with Apple's machine-learning video scaler.")
-                }
-                if clip.upscale != .off {
-                    InspectorRow("Output", dimensions(clip.outputSize))
-                }
-                if clip.upscale == .best {
-                    GridRow {
-                        Color.clear.gridCellUnsizedAxes([.horizontal, .vertical])
-                        ModelStatusView(size: clip.displaySize)
-                    }
-                }
-
-                GridRow {
-                    InspectorLabel("Sharpen")
-                    HStack(spacing: 6) {
-                        Slider(value: $clip.sharpen, in: 0...1)
-                        Text(clip.sharpen < 0.01 ? "Off" : "\(Int((clip.sharpen * 100).rounded()))%")
-                            .monospacedDigit()
-                            .frame(width: 34, alignment: .trailing)
-                    }
-                    .help("A light final sharpen. Too much makes tape noise stand out.")
+                    .gridCellColumns(2)
                 }
             } else {
                 GridRow {
@@ -276,7 +321,7 @@ struct ClipInspectorView: View {
                 .disabled(presetName.trimmingCharacters(in: .whitespaces).isEmpty)
             Button("Cancel", role: .cancel) {}
         } message: {
-            Text("Saves Reduce Noise, Enhance, and Sharpen so you can use them on other clips. A set with the same name is replaced.")
+            Text("Saves Reduce Noise, Enhance, Sharpen, and Film Grain together so you can use them on other clips. A set with the same name is replaced.")
         }
     }
 
@@ -601,6 +646,175 @@ private struct GradeSection: View {
 }
 
 /// Name and range of a subclip, and a link back to its source video.
+/// One effect's accordion inside the Effects section. The header shows whether it's on (the dot),
+/// its status while collapsed, and a menu to clear it or save and load its presets. The open or
+/// closed state is remembered per effect.
+struct EffectGroup<Content: View>: View {
+    let kind: EffectKind
+    @Bindable var clip: Clip
+    @ViewBuilder let content: () -> Content
+    @AppStorage private var isCollapsed: Bool
+    @State private var store = EffectPresetStore.shared
+    @State private var isNaming = false
+    @State private var presetName = ""
+
+    init(kind: EffectKind, clip: Clip, @ViewBuilder content: @escaping () -> Content) {
+        self.kind = kind
+        self.clip = clip
+        self.content = content
+        _isCollapsed = AppStorage(wrappedValue: true, "effectCollapsed.\(kind.rawValue)")
+    }
+
+    var body: some View {
+        let isActive = kind.isActive(on: clip)
+        VStack(alignment: .leading, spacing: 0) {
+            HStack(spacing: 6) {
+                Button {
+                    withAnimation(.snappy(duration: 0.2)) { isCollapsed.toggle() }
+                } label: {
+                    HStack(spacing: 6) {
+                        Image(systemName: "chevron.right")
+                            .font(.system(size: 8, weight: .bold))
+                            .foregroundStyle(.secondary)
+                            .rotationEffect(.degrees(isCollapsed ? 0 : 90))
+                            .frame(width: 9)
+                        Circle()
+                            .fill(isActive ? Color.accentColor : Color.secondary.opacity(0.35))
+                            .frame(width: 6, height: 6)
+                        Text(kind.title)
+                            .fontWeight(.medium)
+                        Spacer(minLength: 4)
+                        if isCollapsed {
+                            Text(kind.status(of: clip))
+                                .monospacedDigit()
+                                .foregroundStyle(isActive ? .primary : .secondary)
+                                .lineLimit(1)
+                        }
+                    }
+                    .contentShape(Rectangle())
+                }
+                .buttonStyle(.plain)
+                .help(isCollapsed ? "Show \(kind.title)" : "Hide \(kind.title)")
+                .accessibilityLabel(kind.title)
+                .accessibilityValue(kind.status(of: clip))
+                menu(isActive: isActive)
+            }
+            .padding(.vertical, 5)
+
+            if !isCollapsed {
+                Grid(alignment: .leadingFirstTextBaseline, horizontalSpacing: 8, verticalSpacing: 4) {
+                    content()
+                }
+                .padding(.bottom, 8)
+                .transition(.opacity)
+            }
+        }
+        .alert("Save \(kind.title) Preset", isPresented: $isNaming) {
+            TextField("Name", text: $presetName)
+            Button("Save") { store.save(kind, name: presetName, from: clip) }
+                .disabled(presetName.trimmingCharacters(in: .whitespaces).isEmpty)
+            Button("Cancel", role: .cancel) {}
+        } message: {
+            Text("Saves this \(kind.title) setting so you can use it on other clips. A preset with the same name is replaced.")
+        }
+    }
+
+    private func menu(isActive: Bool) -> some View {
+        let saved = store.presets(for: kind)
+        return Menu {
+            if !saved.isEmpty {
+                Section("Presets") {
+                    ForEach(saved) { preset in
+                        Button {
+                            kind.apply(preset.values, to: clip)
+                        } label: {
+                            if kind.matches(preset.values, on: clip) {
+                                Label(preset.name, systemImage: "checkmark")
+                            } else {
+                                Text(preset.name)
+                            }
+                        }
+                    }
+                }
+            }
+            Button("Save as Preset…", systemImage: "square.and.arrow.down") {
+                presetName = ""
+                isNaming = true
+            }
+            .disabled(!isActive)
+            if !saved.isEmpty {
+                Menu("Delete Preset", systemImage: "trash") {
+                    ForEach(saved) { preset in
+                        Button(preset.name, role: .destructive) { store.delete(preset) }
+                    }
+                }
+            }
+            Divider()
+            Button("Clear \(kind.title)", systemImage: "xmark.circle", role: .destructive) {
+                kind.clear(on: clip)
+            }
+            .disabled(!isActive)
+        } label: {
+            Image(systemName: "ellipsis.circle")
+                .foregroundStyle(.secondary)
+        }
+        .menuStyle(.borderlessButton)
+        .menuIndicator(.hidden)
+        .fixedSize()
+        .help("\(kind.title) options: presets, save, clear")
+    }
+}
+
+/// A percentage to type, − and + buttons, and a menu of common amounts (Sharpen, Film Grain).
+struct PercentControl: View {
+    @Binding var percent: Int
+    let presets: [(percent: Int, title: String)]
+    var step = 5
+    /// What it changes, for the buttons' tooltips ("sharpening").
+    let noun: String
+
+    var body: some View {
+        HStack(spacing: 4) {
+            Button("Less", systemImage: "minus") { percent = Clip.stepped(percent, -1, by: step) }
+                .disabled(percent <= 0)
+                .help("Less \(noun) (−\(step)%)")
+            TextField(noun, value: Binding(get: { percent }, set: { percent = min(100, max(0, $0)) }), format: .number)
+                .textFieldStyle(.roundedBorder)
+                .multilineTextAlignment(.trailing)
+                .monospacedDigit()
+                .frame(width: 44)
+                .help("How much \(noun), from 0 (off) to 100%. Type a number and press Return.")
+            Text("%").foregroundStyle(.secondary)
+            Button("More", systemImage: "plus") { percent = Clip.stepped(percent, 1, by: step) }
+                .disabled(percent >= 100)
+                .help("More \(noun) (+\(step)%)")
+            Menu {
+                ForEach(presets, id: \.percent) { preset in
+                    Button {
+                        percent = preset.percent
+                    } label: {
+                        let title = preset.percent == 0 ? preset.title : "\(preset.title) (\(preset.percent)%)"
+                        if preset.percent == percent {
+                            Label(title, systemImage: "checkmark")
+                        } else {
+                            Text(title)
+                        }
+                    }
+                }
+            } label: {
+                Image(systemName: "chevron.down")
+            }
+            .menuStyle(.borderlessButton)
+            .menuIndicator(.hidden)
+            .fixedSize()
+            .help("Common amounts")
+        }
+        .labelStyle(.iconOnly)
+        .buttonStyle(.borderless)
+        .frame(maxWidth: .infinity, alignment: .leading)
+    }
+}
+
 private struct SubclipSection: View {
     @Bindable var subclip: Subclip
     let clip: Clip

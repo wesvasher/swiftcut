@@ -1,7 +1,7 @@
 import Foundation
 import Observation
 
-/// A saved combination of Effects settings (noise, enhance, sharpen).
+/// A saved combination of Effects settings (noise, enhance, sharpen, film grain).
 struct EffectsPreset: Codable, Identifiable, Hashable {
     var id = UUID()
     var name: String
@@ -9,6 +9,9 @@ struct EffectsPreset: Codable, Identifiable, Hashable {
     var denoiseStrength: Double
     var upscale: UpscaleMode
     var sharpen: Double
+    /// `nil` in sets saved before Film Grain (they leave it off).
+    var filmGrain: Double?
+    var filmGrainSize: Double?
 
     init(name: String, from clip: Clip) {
         self.name = name
@@ -16,6 +19,8 @@ struct EffectsPreset: Codable, Identifiable, Hashable {
         denoiseStrength = clip.denoiseStrength
         upscale = clip.upscale
         sharpen = clip.sharpen
+        filmGrain = clip.filmGrain
+        filmGrainSize = clip.filmGrainSize
     }
 
     func apply(to clip: Clip) {
@@ -23,12 +28,16 @@ struct EffectsPreset: Codable, Identifiable, Hashable {
         clip.denoiseStrength = denoiseStrength
         clip.upscale = upscale
         clip.sharpen = sharpen
+        clip.filmGrain = filmGrain ?? 0
+        clip.filmGrainSize = filmGrainSize ?? 1
     }
 
     /// True when the clip's effects already match this set.
     func matches(_ clip: Clip) -> Bool {
         clip.denoise == denoise && clip.upscale == upscale
             && abs(clip.sharpen - sharpen) < 0.005
+            && abs(clip.filmGrain - (filmGrain ?? 0)) < 0.005
+            && (clip.filmGrain == 0 || abs(clip.filmGrainSize - (filmGrainSize ?? 1)) < 0.005)
             && (!denoise || abs(clip.denoiseStrength - denoiseStrength) < 0.005)
     }
 }

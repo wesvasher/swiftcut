@@ -127,6 +127,10 @@ final class Clip: Identifiable {
     var upscale: UpscaleMode = .off
     /// 0 is off.
     var sharpen = 0.0
+    /// Film grain strength 0…1; 0 is off.
+    var filmGrain = 0.0
+    /// Grain size, `FilmGrain.minSize`…`maxSize`; 1 is fine.
+    var filmGrainSize = 1.0
     /// Rotated (e.g. portrait phone) video; enhancement effects don't handle rotation yet.
     var isRotated = false
     /// Why the preview couldn't apply the effects, if it couldn't.
@@ -141,6 +145,7 @@ final class Clip: Identifiable {
             denoiseStrength: canEnhance && denoise ? Float(denoiseStrength) : nil,
             upscale: canEnhance ? upscale : .off,
             sharpen: canEnhance ? Float(sharpen) : 0,
+            grain: canEnhance && filmGrain > 0 ? FilmGrain(amount: Float(filmGrain), size: Float(filmGrainSize)) : nil,
             lut: canEnhance && lutEnabled ? lut.map { AppliedLUT(lut: $0, intensity: Float(lutIntensity)) } : nil,
             look: canEnhance && lookEnabled ? look.map { AppliedLUT(lut: $0, intensity: Float(lookIntensity)) } : nil,
             grade: canEnhance && !grade.isIdentity ? grade : nil,
@@ -160,6 +165,7 @@ final class Clip: Identifiable {
     var isAtDefaults: Bool {
         !deinterlace && fieldOrderChoice == nil && !showCaptions
             && !denoise && denoiseStrength == 0.5 && upscale == .off && sharpen == 0
+            && filmGrain == 0 && filmGrainSize == 1
             && lutID == defaultLUTID && lutIntensity == 1 && lutEnabled
             && lookID == nil && lookIntensity == 1 && lookEnabled && grade.isIdentity
             && layout == FrameLayout()
@@ -182,12 +188,58 @@ final class Clip: Identifiable {
         layout = FrameLayout()
     }
 
+    /// The Sharpen menu's choices, as percentages, mildest first.
+    static let sharpenPresets: [(percent: Int, title: String)] = [
+        (0, "Off"), (10, "Subtle"), (20, "Light"), (35, "Medium"), (50, "Strong"), (75, "Very Strong"), (100, "Maximum"),
+    ]
+    /// How far the Sharpen − and + buttons move it, in percent.
+    static let sharpenStep = 5
+
+    /// Sharpen as a whole percentage, 0…100.
+    var sharpenPercent: Int {
+        get { Int((sharpen * 100).rounded()) }
+        set { sharpen = Double(min(100, max(0, newValue))) / 100 }
+    }
+
+    /// Moves Sharpen one step down (−1) or up (1), landing on the step's grid (12% up goes to 15%).
+    func stepSharpen(_ direction: Int) {
+        sharpenPercent = Self.stepped(sharpenPercent, direction, by: Self.sharpenStep)
+    }
+
+    /// A percentage one step down (−1) or up (1), on the step's grid, held to 0…100.
+    static func stepped(_ percent: Int, _ direction: Int, by step: Int) -> Int {
+        let next = direction > 0 ? (percent / step + 1) * step : ((percent + step - 1) / step - 1) * step
+        return min(100, max(0, next))
+    }
+
+    /// The Film Grain strength menu's choices, as percentages.
+    static let grainPresets: [(percent: Int, title: String)] = [
+        (0, "Off"), (10, "Subtle"), (20, "Light"), (35, "Medium"), (50, "Heavy"), (75, "Very Heavy"), (100, "Maximum"),
+    ]
+    /// The Film Grain size choices.
+    static let grainSizes: [(size: Double, title: String)] = [
+        (1, "Fine"), (1.6, "Medium"), (2.3, "Coarse"), (3, "Very Coarse"),
+    ]
+
+    /// Film grain strength as a whole percentage, 0…100.
+    var filmGrainPercent: Int {
+        get { Int((filmGrain * 100).rounded()) }
+        set { filmGrain = Double(min(100, max(0, newValue))) / 100 }
+    }
+
+    /// The name of the size choice closest to `size`.
+    static func grainSizeTitle(_ size: Double) -> String {
+        grainSizes.min { abs($0.size - size) < abs($1.size - size) }?.title ?? "Fine"
+    }
+
     /// Turns the Effects section back to its defaults (Timing is left alone).
     func resetEffects() {
         denoise = false
         denoiseStrength = 0.5
         upscale = .off
         sharpen = 0
+        filmGrain = 0
+        filmGrainSize = 1
     }
 
     /// Picture size after effects (upscaling makes it bigger).
@@ -200,7 +252,9 @@ final class Clip: Identifiable {
         let settings = enhanceSettings
         var parts: [String] = []
         if settings.fieldOrder != nil { parts.append(deinterlacedRateLabel) }
-        if settings.denoiseStrength != nil || settings.upscale != .off || settings.sharpen > 0 { parts.append("Enhanced") }
+        if settings.denoiseStrength != nil || settings.upscale != .off || settings.sharpen > 0 || settings.grain != nil {
+            parts.append("Enhanced")
+        }
         if settings.colorLook != nil { parts.append("Graded") }
         return parts.joined(separator: " ")
     }
@@ -250,6 +304,8 @@ final class Clip: Identifiable {
         r.denoiseStrength = denoiseStrength
         r.upscale = upscale
         r.sharpen = sharpen
+        r.filmGrain = filmGrain
+        r.filmGrainSize = filmGrainSize
         r.lutID = lutID
         r.lutIntensity = lutIntensity
         r.lutEnabled = lutEnabled
@@ -276,6 +332,8 @@ final class Clip: Identifiable {
         if denoiseStrength != r.denoiseStrength { denoiseStrength = r.denoiseStrength }
         if upscale != r.upscale { upscale = r.upscale }
         if sharpen != r.sharpen { sharpen = r.sharpen }
+        if filmGrain != r.filmGrain { filmGrain = r.filmGrain }
+        if filmGrainSize != r.filmGrainSize { filmGrainSize = r.filmGrainSize }
         if lutID != r.lutID { lutID = r.lutID }
         if lutIntensity != r.lutIntensity { lutIntensity = r.lutIntensity }
         if lutEnabled != r.lutEnabled { lutEnabled = r.lutEnabled }
