@@ -68,7 +68,8 @@ final class ClipPlayerController {
 
     /// Call when the volume keyframes change; playback follows at once.
     func updateVolume() {
-        volume.spans = [.init(start: 0, end: .greatestFiniteMagnitude, gainDB: 0, envelope: volumeEnvelope)]
+        volume.spans = [.init(start: 0, end: .greatestFiniteMagnitude, gainDB: 0, envelope: volumeEnvelope,
+                              isCinematic: clip?.isCinematicSound ?? false)]
     }
 
     /// Plays `item`'s sound through the volume keyframes.

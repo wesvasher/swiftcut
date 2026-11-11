@@ -121,6 +121,8 @@ nonisolated struct TimelineSettings: Codable, Hashable, Sendable {
     var matchLoudness = false
     /// In LUFS.
     var loudnessTarget = -16.0
+    /// Cinematic Sound for every clip on the timeline: evens out the loud and quiet parts.
+    var cinematicSound = false
 
     /// Common loudness targets, loudest first.
     static let loudnessTargets: [(lufs: Double, title: String)] = [
@@ -153,6 +155,7 @@ nonisolated struct TimelineSettings: Codable, Hashable, Sendable {
         exportPresetID = try? c.decodeIfPresent(UUID.self, forKey: .exportPresetID)
         matchLoudness = (try? c.decodeIfPresent(Bool.self, forKey: .matchLoudness)) ?? false
         loudnessTarget = (try? c.decodeIfPresent(Double.self, forKey: .loudnessTarget)) ?? -16
+        cinematicSound = (try? c.decodeIfPresent(Bool.self, forKey: .cinematicSound)) ?? false
     }
 
     var isDefault: Bool { self == TimelineSettings() }
@@ -162,6 +165,7 @@ nonisolated struct TimelineSettings: Codable, Hashable, Sendable {
         var copy = self
         copy.matchLoudness = false
         copy.loudnessTarget = -16
+        copy.cinematicSound = false
         return copy
     }
 

@@ -552,7 +552,8 @@ final class ProjectStore {
             guard duration > 0 else { return nil }
             defer { start += duration }
             return TimelineAudio.Span(start: start, end: start + duration, gainDB: audioPlan(for: item).gainDB,
-                                      envelope: volume(of: item), sourceStart: trimRange(of: item).lowerBound)
+                                      envelope: volume(of: item), sourceStart: trimRange(of: item).lowerBound,
+                                      isCinematic: clip.isCinematicSound || timelineSettings.cinematicSound)
         }
     }
 
@@ -597,6 +598,27 @@ final class ProjectStore {
             } catch {
                 loudness[key] = Task.isCancelled ? nil : .failed
             }
+        }
+    }
+
+    /// Whether the timeline's sound settings or any clip's volume change on it are changed.
+    var hasTimelineAudioChanges: Bool {
+        let defaults = TimelineSettings()
+        return timelineSettings.matchLoudness != defaults.matchLoudness
+            || timelineSettings.loudnessTarget != defaults.loudnessTarget
+            || timelineSettings.cinematicSound != defaults.cinematicSound
+            || timeline.contains { !$0.audio.isDefault }
+    }
+
+    /// Timeline inspector › Reset Audio: Match Loudness and Cinematic Sound off, the target back
+    /// to −16 LUFS, and every item's volume change undone. Clips' own keyframes aren't touched.
+    func resetTimelineAudio() {
+        let defaults = TimelineSettings()
+        timelineSettings.matchLoudness = defaults.matchLoudness
+        timelineSettings.loudnessTarget = defaults.loudnessTarget
+        timelineSettings.cinematicSound = defaults.cinematicSound
+        for index in timeline.indices where !timeline[index].audio.isDefault {
+            timeline[index].audio = ItemAudio()
         }
     }
 
@@ -670,13 +692,14 @@ final class ProjectStore {
                                   end: CMTime(seconds: range.upperBound, preferredTimescale: 90_000))
                     : nil
                 // Times in this asset are the source video's.
-                let mix = await Self.volumeMix(volume, asset: playable.asset, sourceStart: 0)
+                let mix = await Self.volumeMix(volume, isCinematic: clip.isCinematicSound, asset: playable.asset, sourceStart: 0)
                 exporter.export(asset: playable.asset, videoComposition: playable.videoComposition,
                                 audioMix: mix, timeRange: timeRange, name: name, preset: preset, folder: folder)
             } else {
                 // Goes through a composition so the picture shape is corrected the same way as in the preview.
                 let built = try await CompositionBuilder.build([.init(url: clip.url, start: range.lowerBound, end: range.upperBound)])
-                let mix = await Self.volumeMix(volume, asset: built.composition, sourceStart: range.lowerBound)
+                let mix = await Self.volumeMix(volume, isCinematic: clip.isCinematicSound, asset: built.composition,
+                                               sourceStart: range.lowerBound)
                 exporter.export(asset: built.composition, videoComposition: built.videoComposition,
                                 audioMix: mix, name: name, preset: preset, folder: folder)
             }
@@ -687,11 +710,12 @@ final class ProjectStore {
 
     /// Applies volume keyframes to an export, where the export's time 0 is `sourceStart` in the
     /// source video. `nil` when there are none.
-    private static func volumeMix(_ volume: VolumeEnvelope, asset: AVAsset, sourceStart: Double) async -> AVAudioMix? {
-        guard !volume.isEmpty,
+    private static func volumeMix(_ volume: VolumeEnvelope, isCinematic: Bool, asset: AVAsset,
+                                  sourceStart: Double) async -> AVAudioMix? {
+        guard !volume.isEmpty || isCinematic,
               let tracks = try? await asset.loadTracks(withMediaType: .audio), !tracks.isEmpty else { return nil }
         let audio = TimelineAudio(spans: [.init(start: 0, end: .greatestFiniteMagnitude, gainDB: 0,
-                                                envelope: volume, sourceStart: sourceStart)])
+                                                envelope: volume, sourceStart: sourceStart, isCinematic: isCinematic)])
         return audio.audioMix(for: tracks)
     }
 

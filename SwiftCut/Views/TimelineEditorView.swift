@@ -34,6 +34,7 @@ struct TimelineEditorView: View {
                                 range: store.trimRange(of: item),
                                 volume: store.volume(of: item),
                                 gainDB: store.audioPlan(for: item).gainDB,
+                                isCinematic: clip.isCinematicSound || store.timelineSettings.cinematicSound,
                                 isSelected: item.id == store.selectedTimelineItemID
                             )
                             .frame(width: width(of: item))
@@ -345,6 +346,8 @@ private struct TimelineClipView: View {
     let volume: VolumeEnvelope
     /// The timeline's change to its volume (Match Loudness and the clip's own adjustment), in dB.
     let gainDB: Double
+    /// Cinematic Sound, from the clip or the whole timeline.
+    let isCinematic: Bool
     let isSelected: Bool
 
     var body: some View {
@@ -402,7 +405,8 @@ private struct TimelineClipView: View {
         let start = CGFloat(range.lowerBound / duration) * fullWidth
         return WaveformView(waveform: clip.waveform, isReading: clip.hasAudio && !clip.isWaveformRead,
                             contentWidth: fullWidth, drawn: start...(start + max(1, width)),
-                            volume: volume, duration: duration, gainDB: gainDB, cornerRadius: 0)
+                            volume: volume, duration: duration, gainDB: gainDB, isCinematic: isCinematic,
+                            cornerRadius: 0)
     }
 }
 

@@ -73,6 +73,27 @@ struct TimelineInspectorView: View {
                 .disabled(!store.timelineSettings.matchLoudness)
             }
             .help("How loud the clips are made. Online video is usually −14 LUFS; TV is −23 or −24.")
+            GridRow {
+                InspectorLabel("Cinematic")
+                HStack(spacing: 6) {
+                    Toggle("Cinematic Sound", isOn: $store.timelineSettings.cinematicSound)
+                        .toggleStyle(.switch)
+                        .controlSize(.mini)
+                        .labelsHidden()
+                    Text("Even out every clip")
+                        .foregroundStyle(.secondary)
+                }
+                .frame(maxWidth: .infinity, alignment: .leading)
+            }
+            .help("Cinematic Sound for the whole timeline: turns the loud parts down and the quiet parts up, the way film and TV mixes do, and keeps the peaks from distorting. Clips that have it on themselves keep it either way.")
+            GridRow {
+                InspectorLabel("Audio")
+                Button("Reset Audio", systemImage: "arrow.counterclockwise") { store.resetTimelineAudio() }
+                    .labelStyle(.titleOnly)
+                    .disabled(!store.hasTimelineAudioChanges)
+                    .help("Turn off Match Loudness and Cinematic Sound, set the target back to −16 LUFS, and undo every clip's volume change on the timeline. Clips' own volume keyframes and Cinematic Sound are kept; change those in the clip viewer. You can undo this with Edit › Undo.")
+                    .frame(maxWidth: .infinity, alignment: .leading)
+            }
             InspectorRow("Frame Size", frameSizeText)
             InspectorRow("Rate", frameRateText)
             GridRow {

@@ -86,6 +86,8 @@ nonisolated struct ProjectFile: Codable, Equatable, Sendable {
         var grade = ColorGrade()
         /// Volume keyframes; `nil` when there are none.
         var volume: VolumeEnvelope?
+        /// Cinematic Sound.
+        var cinematicSound = false
         /// Scale, position, and background; `nil` when untouched.
         var layout: FrameLayout?
         /// The images and settings, for a source video made from images. `path` is then the
@@ -128,6 +130,7 @@ nonisolated struct ProjectFile: Codable, Equatable, Sendable {
             }
             grade = try c.decodeIfPresent(ColorGrade.self, forKey: .grade) ?? ColorGrade()
             volume = try? c.decodeIfPresent(VolumeEnvelope.self, forKey: .volume)
+            cinematicSound = (try? c.decodeIfPresent(Bool.self, forKey: .cinematicSound)) ?? false
             layout = try? c.decodeIfPresent(FrameLayout.self, forKey: .layout)
             imageSequence = try? c.decodeIfPresent(ImageSequence.self, forKey: .imageSequence)
         }

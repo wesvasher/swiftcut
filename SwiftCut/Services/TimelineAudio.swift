@@ -17,13 +17,17 @@ nonisolated final class TimelineAudio: @unchecked Sendable {
         var envelope: VolumeEnvelope?
         /// Seconds into the source video where the span starts (keyframe times are in source time).
         var sourceStart = 0.0
+        /// Cinematic Sound: even out the loud and quiet parts (see `CinematicDynamics`), after the gains.
+        var isCinematic = false
 
-        init(start: Double, end: Double, gainDB: Double, envelope: VolumeEnvelope? = nil, sourceStart: Double = 0) {
+        init(start: Double, end: Double, gainDB: Double, envelope: VolumeEnvelope? = nil, sourceStart: Double = 0,
+             isCinematic: Bool = false) {
             self.start = start
             self.end = end
             self.gainDB = gainDB
             self.envelope = envelope?.isEmpty == true ? nil : envelope
             self.sourceStart = sourceStart
+            self.isCinematic = isCinematic
         }
 
         /// The change at `time` (timeline seconds inside the span), as a multiplier.
@@ -246,6 +250,7 @@ private nonisolated final class TapContext {
     private var stepCount = 0
     private var stepLength = 4_800
     private var stepPeaks: [Float] = []
+    private var dynamics = CinematicDynamics(sampleRate: 48_000)
 
     init(owner: TimelineAudio) {
         self.owner = owner
@@ -258,6 +263,7 @@ private nonisolated final class TapContext {
         filters = Array(repeating: KWeighting(sampleRate: sampleRate), count: channels)
         stepPeaks = Array(repeating: 0, count: channels)
         stepLength = max(1, Int(sampleRate / 10))
+        dynamics = CinematicDynamics(sampleRate: sampleRate)
         // Gain changes glide over about 10 ms, so they don't click.
         smoothing = 1 - exp(-1 / (0.01 * sampleRate))
         expected = -1
@@ -273,6 +279,7 @@ private nonisolated final class TapContext {
             steps.removeAll()
             stepSum = 0
             stepCount = 0
+            dynamics = CinematicDynamics(sampleRate: sampleRate)
         }
 
         var spanIndex = -1
@@ -295,7 +302,20 @@ private nonisolated final class TapContext {
                 target = spans[spanIndex].gain(at: time)
             }
             gain += (target - gain) * smoothing
-            let applied = Float(gain)
+            var applied = Float(gain)
+
+            if spanIndex >= 0, spans[spanIndex].isCinematic {
+                // Cinematic Sound works on the frame's loudest channel, after the volume.
+                var peak: Float = 0
+                for buffer in buffers {
+                    let stride = Int(buffer.mNumberChannels)
+                    guard let data = buffer.mData?.assumingMemoryBound(to: Float.self) else { continue }
+                    for inBuffer in 0..<stride {
+                        peak = max(peak, abs(data[frame * stride + inBuffer] * applied))
+                    }
+                }
+                applied *= dynamics.gain(forPeak: peak)
+            }
 
             var channel = 0
             var squares = 0.0

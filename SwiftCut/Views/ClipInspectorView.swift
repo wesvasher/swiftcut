@@ -740,7 +740,24 @@ private struct VolumeRows: View {
     @Bindable var clip: Clip
     @Bindable var controller: ClipPlayerController
 
+    /// Whether anything in the Audio section is changed from how the clip was imported.
+    private var hasAudioChanges: Bool { !controller.volumeEnvelope.isEmpty || clip.isCinematicSound }
+
     var body: some View {
+        GridRow {
+            InspectorLabel("Cinematic")
+            HStack(spacing: 6) {
+                Toggle("Cinematic Sound", isOn: $clip.isCinematicSound)
+                    .toggleStyle(.switch)
+                    .controlSize(.mini)
+                    .labelsHidden()
+                Text("Even out loud and quiet parts")
+                    .foregroundStyle(.secondary)
+            }
+            .frame(maxWidth: .infinity, alignment: .leading)
+        }
+        .help("Cinematic Sound turns the loud parts down and the quiet parts up, the way film and TV mixes do, and keeps the peaks from distorting. It plays in the viewer and on the timeline, and is in exports. "
+              + (controller.subclip == nil ? "Its subclips share it." : "It belongs to the source video, so its other subclips change too."))
         GridRow {
             InspectorLabel("Volume")
             Button(controller.isEditingVolume ? "Done" : "Edit Volume",
@@ -750,6 +767,24 @@ private struct VolumeRows: View {
             .help(controller.isEditingVolume
                   ? "Close the volume editor"
                   : "Make the waveform in the viewer taller and show its volume line, to change the volume over time with keyframes")
+        }
+        GridRow {
+            InspectorLabel("Reset")
+            HStack(spacing: 6) {
+                Button("Clear Keyframes", systemImage: "diamond.slash", action: clearKeyframes)
+                    .disabled(controller.volumeEnvelope.isEmpty)
+                    .help(controller.subclip == nil
+                          ? "Remove every volume keyframe, so the sound plays as recorded. You can undo this with Edit › Undo."
+                          : "Remove every volume keyframe from this subclip, so it plays as recorded. The source video's keyframes aren't changed. You can undo this with Edit › Undo.")
+                Button("Reset Audio", systemImage: "arrow.counterclockwise") {
+                    clearKeyframes()
+                    clip.isCinematicSound = false
+                }
+                .disabled(!hasAudioChanges)
+                .help("Remove the volume keyframes and turn off Cinematic Sound, so the sound plays as recorded. You can undo this with Edit › Undo.")
+            }
+            .labelStyle(.titleOnly)
+            .frame(maxWidth: .infinity, alignment: .leading)
         }
         if controller.isEditingVolume {
             GridRow {
@@ -846,6 +881,11 @@ private struct VolumeRows: View {
             }
             .help("Delete this keyframe")
         }
+    }
+
+    private func clearKeyframes() {
+        controller.volumeEnvelope.removeAll()
+        controller.selectedKeyframe = nil
     }
 
     private func addKeyframe() {

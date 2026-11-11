@@ -84,6 +84,7 @@ struct ClipDetailView: View {
             })
         }
         .onChange(of: subclip?.volume ?? clip.volume) { controller.updateVolume() }
+        .onChange(of: clip.isCinematicSound) { controller.updateVolume() }
         .onChange(of: clip.enhanceSettings.layout) { controller.updateLayout() }
         .onChange(of: clip.showCaptions) {
             Task { await controller.updateCaptions() }
@@ -694,7 +695,8 @@ private struct Scrubber: View {
                 filmstrip
                 if showsWaveform {
                     WaveformView(waveform: clip.waveform, isReading: !clip.isWaveformRead,
-                                 contentWidth: width, drawn: drawn, volume: controller.volumeEnvelope, duration: duration)
+                                 contentWidth: width, drawn: drawn, volume: controller.volumeEnvelope, duration: duration,
+                                 isCinematic: clip.isCinematicSound)
                         .frame(width: drawn.upperBound - drawn.lowerBound, height: waveformHeight)
                         .offset(x: drawn.lowerBound)
                 }

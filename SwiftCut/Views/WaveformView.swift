@@ -16,6 +16,8 @@ struct WaveformView: View {
     var duration: Double = 0
     /// A fixed change on top of the keyframes, in dB (a timeline clip's loudness matching).
     var gainDB = 0.0
+    /// Draws the sound after Cinematic Sound evens it out.
+    var isCinematic = false
     /// 0 draws it square and unframed, to sit inside something else's frame (a timeline clip).
     var cornerRadius: CGFloat = 6
 
@@ -30,7 +32,7 @@ struct WaveformView: View {
 
     /// The column heights after the volume changes, 0…1.
     static func levels(_ waveform: Waveform, columns: Int, contentWidth: CGFloat, drawnStart: CGFloat,
-                       volume: VolumeEnvelope, duration: Double, gainDB: Double) -> [Float] {
+                       volume: VolumeEnvelope, duration: Double, gainDB: Double, isCinematic: Bool = false) -> [Float] {
         let count = waveform.peaks.count
         guard count > 0, contentWidth > 0 else { return [] }
         let perPoint = Double(count) / Double(contentWidth)
@@ -47,7 +49,10 @@ struct WaveformView: View {
             }
             guard gain.isFinite else { return 0 }
             // Heights are in decibels above the floor, so a volume change shifts them evenly.
-            return min(1, max(0, level - Float(gain) / Waveform.floorDB))
+            let shifted = min(1, max(0, level - Float(gain) / Waveform.floorDB))
+            guard isCinematic, shifted > 0 else { return shifted }
+            let db = Double((1 - shifted) * Waveform.floorDB)
+            return height(forDB: CinematicDynamics.outputDB(forLevel: db))
         }
     }
 
@@ -57,7 +62,8 @@ struct WaveformView: View {
             let middle = size.height / 2
             let reach = middle - 1
             let levels = Self.levels(waveform, columns: Int(size.width.rounded(.up)), contentWidth: contentWidth,
-                                     drawnStart: drawn.lowerBound, volume: volume, duration: duration, gainDB: gainDB)
+                                     drawnStart: drawn.lowerBound, volume: volume, duration: duration, gainDB: gainDB,
+                                     isCinematic: isCinematic)
             let warning = Self.warningHeight, danger = Self.dangerHeight
 
             // Each column in up to three parts: normal up to the warning line, yellow to the danger line, red above.
