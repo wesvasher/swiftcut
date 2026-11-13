@@ -15,6 +15,8 @@ struct TimelineInspectorView: View {
             export
             if let item = store.selectedTimelineItem, let clip = store.clip(for: item.clipID) {
                 selectedClip(item, clip)
+            } else if store.selectedTimelineItemIDs.count > 1 {
+                selectedClips(store.selectedTimelineItems)
             } else {
                 InspectorSection("Selected Clip") {
                     GridRow {
@@ -26,6 +28,28 @@ struct TimelineInspectorView: View {
             }
         } footer: {
             footer
+        }
+    }
+
+    /// Several clips selected (Command- or Shift-click): how many, how long, and removing them.
+    private func selectedClips(_ items: [TimelineItem]) -> some View {
+        InspectorSection("Selected Clips") {
+            InspectorRow("Clips", items.count.formatted())
+            InspectorRow("Length", items.reduce(0) { $0 + store.duration(of: $1) }.preciseTimecode)
+            GridRow {
+                Color.clear.gridCellUnsizedAxes([.horizontal, .vertical])
+                Button("Remove from Timeline", systemImage: "trash", role: .destructive) {
+                    store.removeSelectedTimelineItems()
+                }
+                .help("Remove the selected clips from the timeline. Their source videos stay in the project.")
+            }
+            GridRow {
+                Text("Click one clip to see its details. Command-click adds or removes a clip; Shift-click selects a run of clips.")
+                    .font(.caption2)
+                    .foregroundStyle(.secondary)
+                    .fixedSize(horizontal: false, vertical: true)
+                    .gridCellColumns(2)
+            }
         }
     }
 

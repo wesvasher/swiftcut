@@ -35,11 +35,13 @@ struct TimelineEditorView: View {
                                 volume: store.volume(of: item),
                                 gainDB: store.audioPlan(for: item).gainDB,
                                 isCinematic: clip.isCinematicSound || store.timelineSettings.cinematicSound,
-                                isSelected: item.id == store.selectedTimelineItemID
+                                isSelected: store.selectedTimelineItemIDs.contains(item.id)
                             )
                             .frame(width: width(of: item))
                             .onTapGesture {
-                                store.selectedTimelineItemID = item.id
+                                // Command adds or removes a clip; Shift selects a run of clips.
+                                let keys = NSEvent.modifierFlags
+                                store.clickTimelineItem(item.id, command: keys.contains(.command), shift: keys.contains(.shift))
                                 isFocused = true
                             }
                             // Alongside the single click, so selecting doesn't wait to rule out a double-click.
@@ -58,7 +60,11 @@ struct TimelineEditorView: View {
                 .padding(.top, scrubHeight)
                 .frame(minWidth: visibleWidth, maxHeight: .infinity, alignment: .leading)
                 .contentShape(Rectangle())
-                .onTapGesture { store.selectedTimelineItemID = nil }
+                .onTapGesture {
+                    // Clicking empty space clears the selection, unless adding to it.
+                    let keys = NSEvent.modifierFlags
+                    if !keys.contains(.command), !keys.contains(.shift) { store.selectedTimelineItemID = nil }
+                }
                 .overlay(alignment: .top) {
                     if !store.timeline.isEmpty {
                         scrubArea
@@ -99,7 +105,11 @@ struct TimelineEditorView: View {
             .focusEffectDisabled()
             .focused($isFocused)
             .onDeleteCommand {
-                if let id = store.selectedTimelineItemID { store.removeTimelineItem(id) }
+                store.removeSelectedTimelineItems()
+            }
+            // Edit › Select All (⌘A) while the timeline has focus.
+            .onCommand(#selector(NSText.selectAll(_:))) {
+                store.selectAllTimelineItems()
             }
         }
         .background(.background.secondary)
@@ -227,8 +237,15 @@ struct TimelineEditorView: View {
             Button("Show Source Video", systemImage: "film") { open(item) }
         }
         Divider()
-        Button("Remove from Timeline", systemImage: "trash", role: .destructive) {
-            store.removeTimelineItem(item.id)
+        let selected = store.selectedTimelineItemIDs
+        if selected.count > 1, selected.contains(item.id) {
+            Button("Remove \(selected.count) Clips from Timeline", systemImage: "trash", role: .destructive) {
+                store.removeSelectedTimelineItems()
+            }
+        } else {
+            Button("Remove from Timeline", systemImage: "trash", role: .destructive) {
+                store.removeTimelineItem(item.id)
+            }
         }
     }
 

@@ -15,7 +15,19 @@ final class ProjectStore {
     /// The timeline's frame size, frame rate, and fit (timeline inspector's Timeline Settings section).
     var timelineSettings = TimelineSettings()
     var selection: Set<SidebarItem> = []
-    var selectedTimelineItemID: UUID?
+    /// Selected timeline items: Command-click adds or removes one, Shift-click selects a run.
+    var selectedTimelineItemIDs: Set<UUID> = []
+    /// Where a Shift-click run starts from: the item last clicked on its own or with Command.
+    var timelineSelectionAnchor: UUID?
+
+    /// The selected timeline item, when exactly one is. Setting it selects just that one.
+    var selectedTimelineItemID: UUID? {
+        get { selectedTimelineItemIDs.count == 1 ? selectedTimelineItemIDs.first : nil }
+        set {
+            selectedTimelineItemIDs = newValue.map { [$0] } ?? []
+            timelineSelectionAnchor = newValue
+        }
+    }
     var isImporting = false
     /// Images dropped on the window, while the user chooses Image Sequence or Individual Images.
     var pendingImageImport: PendingImageImport?
@@ -195,9 +207,9 @@ final class ProjectStore {
             }
         }
         if kept != selection { selection = kept }
-        if let selected = selectedTimelineItemID, !timeline.contains(where: { $0.id == selected }) {
-            selectedTimelineItemID = nil
-        }
+        let itemIDs = Set(timeline.map(\.id))
+        if !selectedTimelineItemIDs.isSubset(of: itemIDs) { selectedTimelineItemIDs.formIntersection(itemIDs) }
+        if let anchor = timelineSelectionAnchor, !itemIDs.contains(anchor) { timelineSelectionAnchor = nil }
     }
 
     // MARK: Videos that can't be opened
@@ -397,7 +409,50 @@ final class ProjectStore {
 
     func removeTimelineItem(_ id: UUID) {
         timeline.removeAll { $0.id == id }
-        if selectedTimelineItemID == id { selectedTimelineItemID = nil }
+        selectedTimelineItemIDs.remove(id)
+        if timelineSelectionAnchor == id { timelineSelectionAnchor = nil }
+    }
+
+    // MARK: Selecting on the timeline
+
+    /// Selected timeline items, in timeline order.
+    var selectedTimelineItems: [TimelineItem] {
+        timeline.filter { selectedTimelineItemIDs.contains($0.id) }
+    }
+
+    /// A click on a timeline item. On its own it selects just that item. With Command it adds
+    /// or removes the item. With Shift it selects every item from the anchor (the last item
+    /// clicked without Shift) to this one; Command-Shift adds that run to what's selected.
+    func clickTimelineItem(_ id: UUID, command: Bool = false, shift: Bool = false) {
+        guard let index = timeline.firstIndex(where: { $0.id == id }) else { return }
+        if shift, let anchor = timelineSelectionAnchor, let start = timeline.firstIndex(where: { $0.id == anchor }) {
+            let run = Set(timeline[min(start, index)...max(start, index)].map(\.id))
+            selectedTimelineItemIDs = command ? selectedTimelineItemIDs.union(run) : run
+        } else if command || shift {
+            if selectedTimelineItemIDs.contains(id) {
+                selectedTimelineItemIDs.remove(id)
+            } else {
+                selectedTimelineItemIDs.insert(id)
+            }
+            timelineSelectionAnchor = id
+        } else {
+            selectedTimelineItemID = id
+        }
+    }
+
+    /// Selects every timeline item (⌘A in the timeline).
+    func selectAllTimelineItems() {
+        selectedTimelineItemIDs = Set(timeline.map(\.id))
+        timelineSelectionAnchor = timeline.first?.id
+    }
+
+    /// Removes the selected items from the timeline.
+    func removeSelectedTimelineItems() {
+        let ids = selectedTimelineItemIDs
+        guard !ids.isEmpty else { return }
+        timeline.removeAll { ids.contains($0.id) }
+        selectedTimelineItemIDs = []
+        timelineSelectionAnchor = nil
     }
 
     /// Minimum length a trimmed clip can have.
