@@ -231,7 +231,8 @@ struct ImageSequenceTests {
         try await Self.waitUntil { store.clip(for: clip.id)?.isLoaded == true }
         // Made at 12 fps straight away: 6 images last half a second.
         let loaded = try #require(store.clip(for: clip.id))
-        #expect(loaded === clip)
+        // A fresh clip once the video is made, so a viewer already showing it reloads.
+        #expect(loaded !== clip)
         #expect(abs(loaded.duration - 0.5) < 0.001)
         #expect(abs(Double(loaded.frameRate) - 12) < 0.01)
 
@@ -359,6 +360,34 @@ struct ImageSequenceTests {
 
         try? FileManager.default.removeItem(at: second.url)
         store.removeClips([id])
+    }
+
+    /// The viewer opens a newly imported sequence before its video exists. When the video is
+    /// ready the store hands over a new clip (same id), which is what makes the viewer reload.
+    @Test @MainActor func viewerGetsAFreshClipWhenTheFirstVideoIsReady() async throws {
+        let (dir, _) = try Self.folder(count: 3)
+        let store = ProjectStore(exporter: ExportManager.test("ImageSequenceTests"))
+        let imported = try #require(store.importImages(folders: [dir], images: [], asSequence: true).first)
+        store.selection = [.clip(imported.id)]
+        // What the viewer opened: not there yet.
+        #expect(!FileManager.default.fileExists(atPath: imported.url.path(percentEncoded: false)))
+        let controller = ClipPlayerController()
+        controller.load(imported)
+
+        try await Self.waitUntil { store.clip(for: imported.id)?.isLoaded == true }
+        let ready = try #require(store.singleSelectedMedia?.clip)
+        #expect(ready !== imported && ready.id == imported.id)
+        #expect(ready.url == imported.url)
+        #expect(FileManager.default.fileExists(atPath: ready.url.path(percentEncoded: false)))
+        #expect(store.selection == [.clip(imported.id)])
+
+        // Loading the new clip gives the player a playable item.
+        controller.load(ready)
+        let item = try #require(controller.player.currentItem)
+        try await Self.waitUntil { item.status != .unknown }
+        #expect(item.status == .readyToPlay)
+        try? FileManager.default.removeItem(at: ready.url)
+        store.removeClips([ready.id])
     }
 
     @Test @MainActor func droppingImagesAsks() throws {

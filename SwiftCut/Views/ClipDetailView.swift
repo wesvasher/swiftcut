@@ -94,7 +94,7 @@ struct ClipDetailView: View {
         }
         // The LUT and grade aren't part of the key: the preview follows them live.
         .onChange(of: quality, initial: true) { controller.previewQuality = quality }
-        .task(id: EffectsKey(id: clip.id, settings: clip.enhanceSettings.structure, quality: quality)) {
+        .task(id: EffectsKey(clip: ObjectIdentifier(clip), settings: clip.enhanceSettings.structure, quality: quality)) {
             // Wait a moment so dragging a slider doesn't rebuild the preview on every tick.
             try? await Task.sleep(for: .milliseconds(200))
             guard !Task.isCancelled else { return }
@@ -151,7 +151,9 @@ extension ClipDetailView {
 
 /// Changes whenever the preview needs rebuilding with different effects.
 private struct EffectsKey: Hashable {
-    let id: UUID
+    /// The clip object, not just its id: a remade or relinked video is a new object with the
+    /// same id, and its player needs the effects again.
+    let clip: ObjectIdentifier
     let settings: EnhanceSettings
     let quality: PreviewQuality
 }

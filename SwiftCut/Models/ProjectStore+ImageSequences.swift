@@ -266,11 +266,10 @@ extension ProjectStore {
                 self.sequenceBuilds[id] = nil
                 guard let current = self.clip(for: id) else { return }
                 current.sequenceProgress = nil
-                if current.url == target {
-                    self.load(current)
-                } else {
-                    self.swapVideo(of: current, to: target)
-                }
+                // Always a fresh clip, even when it's the first video at this address: a viewer
+                // showing the clip already tried to open the missing file, and reloads only for a
+                // different clip.
+                self.swapVideo(of: current, to: target)
             } catch {
                 guard let self, !(error is CancellationError), self.sequenceBuilds[id]?.url == target else { return }
                 self.sequenceBuilds[id] = nil
