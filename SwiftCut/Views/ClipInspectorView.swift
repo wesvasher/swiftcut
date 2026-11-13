@@ -659,11 +659,9 @@ struct BackgroundSection: View {
         InspectorSection("Background") {
             GridRow {
                 InspectorLabel("Fill")
-                HStack(spacing: 4) {
-                    transparentSwatch
-                    ForEach(RGBAColor.backgroundSwatches, id: \.name) { swatch in
-                        colorSwatch(swatch.color, name: swatch.name)
-                    }
+                HStack(spacing: 6) {
+                    fillMenu
+                    moreMenu
                 }
                 .frame(maxWidth: .infinity, alignment: .leading)
             }
@@ -677,7 +675,6 @@ struct BackgroundSection: View {
                 .frame(maxWidth: .infinity, alignment: .leading)
                 .help("Pick any color")
             }
-            InspectorRow("Shows", clip.layout.background == .transparent ? "Transparent" : clip.layout.backgroundColor.swatchName)
             GridRow {
                 Text(note)
                     .font(.caption2)
@@ -688,11 +685,75 @@ struct BackgroundSection: View {
         }
     }
 
+    private var isTransparent: Bool { clip.layout.background == .transparent }
+
+    /// The fill's name, as the menu shows it.
+    private var fillName: String {
+        isTransparent ? "Transparent" : clip.layout.backgroundColor.swatchName
+    }
+
+    /// Every fill, each with its swatch, and the current one checked.
+    private var fillMenu: some View {
+        Menu {
+            fillItem("Transparent", swatch: nil, isChosen: isTransparent) {
+                clip.layout.background = .transparent
+            }
+            Divider()
+            ForEach(RGBAColor.backgroundSwatches, id: \.name) { swatch in
+                fillItem(swatch.name, swatch: swatch.color,
+                         isChosen: !isTransparent && clip.layout.backgroundColor.isClose(to: swatch.color)) {
+                    setColor(swatch.color)
+                }
+            }
+            if !isTransparent, clip.layout.backgroundColor.swatchName == "Custom" {
+                Divider()
+                fillItem("Custom", swatch: clip.layout.backgroundColor, isChosen: true) {}
+            }
+        } label: {
+            Label {
+                Text(fillName)
+            } icon: {
+                Image(nsImage: SwatchImage.make(isTransparent ? nil : clip.layout.backgroundColor))
+            }
+            .labelStyle(.titleAndIcon)
+        }
+        .fixedSize()
+        .help("What shows in transparent areas")
+    }
+
+    private func fillItem(_ name: String, swatch: RGBAColor?, isChosen: Bool, action: @escaping () -> Void) -> some View {
+        Button(action: action) {
+            Label {
+                Text(name)
+            } icon: {
+                Image(nsImage: SwatchImage.make(swatch, isChosen: isChosen))
+            }
+        }
+    }
+
+    /// ⋯: back to the default (transparent).
+    private var moreMenu: some View {
+        Menu {
+            Button("Reset to Default (Transparent)", systemImage: "arrow.counterclockwise") {
+                clip.layout.background = .transparent
+                clip.layout.backgroundColor = .black
+            }
+            .disabled(isTransparent && clip.layout.backgroundColor == .black)
+        } label: {
+            Image(systemName: "ellipsis.circle")
+                .foregroundStyle(.secondary)
+        }
+        .menuStyle(.borderlessButton)
+        .menuIndicator(.hidden)
+        .fixedSize()
+        .help("Background options")
+    }
+
     private var note: String {
         let where_ = clip.hasAlpha
             ? "Shows through where this clip is transparent, and around the picture when it's scaled down or moved in Video."
             : "This clip has no transparency of its own; the background shows around the picture when it's scaled down or moved in Video."
-        let how = clip.layout.background == .transparent
+        let how = isTransparent
             ? " Transparent shows as a checkerboard in the viewer. Only Apple ProRes 4444 exports keep it; other formats show black."
             : ""
         return where_ + how
@@ -702,62 +763,42 @@ struct BackgroundSection: View {
         if clip.layout.backgroundColor != color { clip.layout.backgroundColor = color }
         if clip.layout.background != .color { clip.layout.background = .color }
     }
-
-    private var transparentSwatch: some View {
-        let isSelected = clip.layout.background == .transparent
-        return Button {
-            clip.layout.background = .transparent
-        } label: {
-            Checkerboard()
-                .clipShape(Circle())
-                .swatchRing(isSelected)
-        }
-        .buttonStyle(.plain)
-        .help("Transparent: leave it see-through (a checkerboard in the viewer)")
-        .accessibilityLabel("Transparent")
-        .accessibilityAddTraits(isSelected ? .isSelected : [])
-    }
-
-    private func colorSwatch(_ color: RGBAColor, name: String) -> some View {
-        let isSelected = clip.layout.background == .color && clip.layout.backgroundColor.isClose(to: color)
-        return Button {
-            setColor(color)
-        } label: {
-            Circle()
-                .fill(Color(cgColor: color.cgColor))
-                .overlay(Circle().strokeBorder(.primary.opacity(0.25), lineWidth: 0.5))
-                .swatchRing(isSelected)
-        }
-        .buttonStyle(.plain)
-        .help(name)
-        .accessibilityLabel(name)
-        .accessibilityAddTraits(isSelected ? .isSelected : [])
-    }
 }
 
-/// The gray and dark gray checkerboard the viewer shows for transparency, small, for a swatch.
-private struct Checkerboard: View {
-    var body: some View {
-        Canvas { context, size in
-            let cell = size.width / 4
-            context.fill(Path(CGRect(origin: .zero, size: size)), with: .color(Color(white: 0.42)))
-            for row in 0..<4 {
-                for column in 0..<4 where (row + column) % 2 == 0 {
-                    context.fill(Path(CGRect(x: CGFloat(column) * cell, y: CGFloat(row) * cell, width: cell, height: cell)),
-                                 with: .color(Color(white: 0.30)))
+/// Small round swatches for the Fill menu: a color, or the gray checkerboard for transparent.
+/// Drawn as images, since menus show only text and images.
+enum SwatchImage {
+    static let size = CGSize(width: 14, height: 14)
+
+    /// `nil` is transparent. `isChosen` adds a check ring (menus show no checkmark next to an image).
+    static func make(_ color: RGBAColor?, isChosen: Bool = false) -> NSImage {
+        let image = NSImage(size: size, flipped: false) { rect in
+            let circle = NSBezierPath(ovalIn: rect.insetBy(dx: 0.5, dy: 0.5))
+            NSGraphicsContext.saveGraphicsState()
+            circle.addClip()
+            if let color {
+                NSColor(cgColor: color.cgColor)?.setFill()
+                rect.fill()
+            } else {
+                // The viewer's checkerboard colors.
+                NSColor(white: 0.42, alpha: 1).setFill()
+                rect.fill()
+                NSColor(white: 0.30, alpha: 1).setFill()
+                let cell = rect.width / 4
+                for row in 0..<4 {
+                    for column in 0..<4 where (row + column) % 2 == 0 {
+                        NSRect(x: CGFloat(column) * cell, y: CGFloat(row) * cell, width: cell, height: cell).fill()
+                    }
                 }
             }
+            NSGraphicsContext.restoreGraphicsState()
+            (isChosen ? NSColor.controlAccentColor : NSColor(white: 0.5, alpha: 0.6)).setStroke()
+            circle.lineWidth = isChosen ? 2 : 0.5
+            circle.stroke()
+            return true
         }
-    }
-}
-
-private extension View {
-    /// A swatch's size, with an accent ring when it's the one chosen.
-    func swatchRing(_ isSelected: Bool) -> some View {
-        frame(width: 14, height: 14)
-            .padding(2)
-            .overlay(Circle().strokeBorder(isSelected ? Color.accentColor : .clear, lineWidth: 2))
-            .contentShape(Circle())
+        image.isTemplate = false
+        return image
     }
 }
 
