@@ -25,7 +25,7 @@ struct FrameLayoutTests {
         let red = CIImage(color: CIColor(red: 1, green: 0, blue: 0)).cropped(to: frame)
         let blue = RGBAColor(red: 0, green: 0, blue: 1)
 
-        let half = Self.render(FrameLayoutStage.apply(red, layout: FrameLayout(scale: 0.5, backgroundColor: blue),
+        let half = Self.render(FrameLayoutStage.apply(red, layout: FrameLayout(scale: 0.5, background: .color, backgroundColor: blue),
                                                       frame: frame, checkerboard: false))
         #expect(half.width == 200 && half.height == 100, "the frame keeps its size")
         #expect(Self.pixel(half, x: 100, y: 50)[0] > 240, "red in the middle")
@@ -35,7 +35,7 @@ struct FrameLayoutTests {
 
         // Moved right by a quarter of the frame and up by a quarter.
         let moved = Self.render(FrameLayoutStage.apply(
-            red, layout: FrameLayout(scale: 0.5, offsetX: 0.25, offsetY: 0.25, backgroundColor: blue),
+            red, layout: FrameLayout(scale: 0.5, offsetX: 0.25, offsetY: 0.25, background: .color, backgroundColor: blue),
             frame: frame, checkerboard: false))
         #expect(Self.pixel(moved, x: 140, y: 30)[0] > 240, "up is toward the top of the picture")
         #expect(Self.pixel(moved, x: 60, y: 50)[2] > 240)
@@ -98,7 +98,7 @@ struct FrameLayoutTests {
 
     @Test func exportsDrawTheBackgroundColor() async throws {
         let green = RGBAColor(red: 0, green: 1, blue: 0)
-        let result = try await export(FrameLayout(scale: 0.5, backgroundColor: green), preset: .builtIn("ProRes 422"))
+        let result = try await export(FrameLayout(scale: 0.5, background: .color, backgroundColor: green), preset: .builtIn("ProRes 422"))
         #expect(result.corner[1] > 200 && result.corner[0] < 100 && result.corner[2] < 60, "\(result.corner)")
         #expect(result.middle[0] > 150 && result.middle[1] < 100, "\(result.middle)")
     }

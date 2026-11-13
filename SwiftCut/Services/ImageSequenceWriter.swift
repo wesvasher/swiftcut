@@ -205,7 +205,28 @@ nonisolated enum ImageSequenceWriter {
             }
             context.interpolationQuality = .high
             context.draw(image, in: target)
+            // The encoder takes colors as they are (straight alpha), but drawing leaves them
+            // multiplied by their transparency; undone here, or see-through parts come out dark.
+            if !opaque { Self.unpremultiply(buffer) }
             return buffer
+        }
+
+        /// Divides each pixel's color by its alpha (BGRA, 8 bits).
+        static func unpremultiply(_ buffer: CVPixelBuffer) {
+            guard let base = CVPixelBufferGetBaseAddress(buffer)?.assumingMemoryBound(to: UInt8.self) else { return }
+            let width = CVPixelBufferGetWidth(buffer), height = CVPixelBufferGetHeight(buffer)
+            let rowBytes = CVPixelBufferGetBytesPerRow(buffer)
+            for y in 0..<height {
+                let row = base + y * rowBytes
+                for x in 0..<width {
+                    let pixel = row + x * 4
+                    let alpha = UInt32(pixel[3])
+                    guard alpha > 0, alpha < 255 else { continue }
+                    for channel in 0..<3 {
+                        pixel[channel] = UInt8(min(255, (UInt32(pixel[channel]) * 255 + alpha / 2) / alpha))
+                    }
+                }
+            }
         }
     }
 }

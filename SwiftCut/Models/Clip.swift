@@ -24,6 +24,9 @@ final class Clip: Identifiable {
     var fileSize: Int64 = 0
     var hasVideo = true
     var hasAudio = true
+    /// The video has its own transparency (an alpha channel), like ProRes 4444 with alpha or a
+    /// PNG image sequence. The Background section shows through it.
+    var hasAlpha = false
     var thumbnails: [Thumbnail] = []
     /// The sound's waveform, read when the clip is first shown in the viewer. `nil` until then,
     /// or when there's no sound.
@@ -149,7 +152,8 @@ final class Clip: Identifiable {
             lut: canEnhance && lutEnabled ? lut.map { AppliedLUT(lut: $0, intensity: Float(lutIntensity)) } : nil,
             look: canEnhance && lookEnabled ? look.map { AppliedLUT(lut: $0, intensity: Float(lookIntensity)) } : nil,
             grade: canEnhance && !grade.isIdentity ? grade : nil,
-            layout: canEnhance && !layout.isIdentity ? layout : nil
+            // Also for transparent video at full size, so the background shows through it.
+            layout: canEnhance && (!layout.isIdentity || hasAlpha) ? layout : nil
         )
     }
 

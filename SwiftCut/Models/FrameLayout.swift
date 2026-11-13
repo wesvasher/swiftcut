@@ -1,9 +1,10 @@
 import CoreImage
 import Foundation
 
-/// Where a source video's picture sits in its frame: made smaller or larger and moved, over a
-/// background color or transparency. The frame itself keeps its size. Set in the inspector's
-/// Video section; subclips share it, like color.
+/// Where a source video's picture sits in its frame: made smaller or larger and moved (the
+/// inspector's Video section), over a background (the Background section): transparent, shown
+/// as a checkerboard in the viewer, or a color. The background also shows through a clip's own
+/// transparency. The frame itself keeps its size. Subclips share it, like color.
 nonisolated struct FrameLayout: Codable, Hashable, Sendable {
     enum Background: String, Codable, Hashable, Sendable {
         case color
@@ -17,7 +18,7 @@ nonisolated struct FrameLayout: Codable, Hashable, Sendable {
     /// width and height. Positive X is right, positive Y is up.
     var offsetX = 0.0
     var offsetY = 0.0
-    var background = Background.color
+    var background = Background.transparent
     var backgroundColor = RGBAColor.black
 
     static let scaleRange = 0.1...4.0
@@ -26,7 +27,7 @@ nonisolated struct FrameLayout: Codable, Hashable, Sendable {
     var isIdentity: Bool { scale == 1 && offsetX == 0 && offsetY == 0 }
 
     init(scale: Double = 1, offsetX: Double = 0, offsetY: Double = 0,
-         background: Background = .color, backgroundColor: RGBAColor = .black) {
+         background: Background = .transparent, backgroundColor: RGBAColor = .black) {
         self.scale = scale
         self.offsetX = offsetX
         self.offsetY = offsetY
@@ -39,7 +40,7 @@ nonisolated struct FrameLayout: Codable, Hashable, Sendable {
         scale = try c.decodeIfPresent(Double.self, forKey: .scale) ?? 1
         offsetX = try c.decodeIfPresent(Double.self, forKey: .offsetX) ?? 0
         offsetY = try c.decodeIfPresent(Double.self, forKey: .offsetY) ?? 0
-        background = (try? c.decodeIfPresent(Background.self, forKey: .background)) ?? .color
+        background = (try? c.decodeIfPresent(Background.self, forKey: .background)) ?? .transparent
         backgroundColor = try c.decodeIfPresent(RGBAColor.self, forKey: .backgroundColor) ?? .black
     }
 }
@@ -52,6 +53,32 @@ nonisolated struct RGBAColor: Codable, Hashable, Sendable {
     var alpha = 1.0
 
     static let black = RGBAColor(red: 0, green: 0, blue: 0)
+
+    static func gray(_ level: Double) -> RGBAColor { RGBAColor(red: level, green: level, blue: level) }
+
+    /// The Background section's swatches, darkest first. Pure black and white are there, but
+    /// video usually looks better a little off them: "video black" and "video white" are the
+    /// darkest and lightest levels broadcast video uses (16 and 235 of 255).
+    static let backgroundSwatches: [(name: String, color: RGBAColor)] = [
+        ("Black", .gray(0)),
+        ("Video Black (6%)", .gray(16.0 / 255)),
+        ("Charcoal (20%)", .gray(0.2)),
+        ("Middle Gray (50%)", .gray(0.5)),
+        ("Light Gray (80%)", .gray(0.8)),
+        ("Video White (92%)", .gray(235.0 / 255)),
+        ("White", .gray(1)),
+    ]
+
+    /// Its swatch's name, or "Custom".
+    var swatchName: String {
+        Self.backgroundSwatches.first { $0.color.isClose(to: self) }?.name ?? "Custom"
+    }
+
+    /// Equal to the eye: within half a step of 255 in each channel.
+    func isClose(to other: RGBAColor) -> Bool {
+        abs(red - other.red) < 0.002 && abs(green - other.green) < 0.002 && abs(blue - other.blue) < 0.002
+            && abs(alpha - other.alpha) < 0.002
+    }
 
     var cgColor: CGColor {
         CGColor(colorSpace: CGColorSpace(name: CGColorSpace.sRGB)!, components: [red, green, blue, alpha])!
@@ -103,7 +130,14 @@ nonisolated enum FrameLayoutStage {
                 .concatenating(CGAffineTransform(scaleX: scale, y: scale))
                 .concatenating(CGAffineTransform(translationX: frame.midX + layout.offsetX * w,
                                                  y: frame.midY + layout.offsetY * h)))
-        return placed.composited(over: background(layout, frame: frame, checkerboard: checkerboard)).cropped(to: frame)
+        let back = background(layout, frame: frame, checkerboard: checkerboard)
+        // Laid over the background in gamma-encoded values, as design apps and other video apps
+        // do and as transparency in graphics is made for. (In Core Image's linear values,
+        // half-transparent white over black would come out much lighter than in Preview.)
+        return placed.applyingFilter("CILinearToSRGBToneCurve")
+            .composited(over: back.applyingFilter("CILinearToSRGBToneCurve"))
+            .applyingFilter("CISRGBToneCurveToLinear")
+            .cropped(to: frame)
     }
 
     private static func background(_ layout: FrameLayout, frame: CGRect, checkerboard: Bool) -> CIImage {

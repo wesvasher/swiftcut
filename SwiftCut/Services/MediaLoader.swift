@@ -43,6 +43,7 @@ enum MediaLoader {
                     clip.logFormat = logFormat(format)
                     clip.pixelAspectRatio = pixelAspectRatio(format)
                     clip.colorSpace = colorSpaceName(format)
+                    clip.hasAlpha = hasAlpha(format)
                 }
                 clip.videoBitRate = try? await track.load(.estimatedDataRate)
             } else {
@@ -95,6 +96,12 @@ enum MediaLoader {
         let bytes = [24, 16, 8, 0].map { UInt8((code >> $0) & 0xFF) }
         let fourCC = String(bytes: bytes, encoding: .macOSRoman) ?? "?"
         return names[fourCC] ?? fourCC.trimmingCharacters(in: .whitespaces).uppercased()
+    }
+
+    /// Whether the video keeps transparency: 32 bits a pixel (an alpha channel), as ProRes 4444
+    /// with alpha, PNG, and Animation files say.
+    static func hasAlpha(_ format: CMFormatDescription) -> Bool {
+        (CMFormatDescriptionGetExtension(format, extensionKey: kCMFormatDescriptionExtension_Depth) as? NSNumber)?.intValue == 32
     }
 
     private static func pixelAspectRatio(_ format: CMFormatDescription) -> CGSize? {

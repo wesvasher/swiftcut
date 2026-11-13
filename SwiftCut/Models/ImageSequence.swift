@@ -149,7 +149,9 @@ nonisolated struct ImageSequence: Codable, Hashable, Sendable {
     /// Identifies what the video shows: the images and every setting that changes the picture.
     /// The cached video is named after it, so changing a setting makes a new video.
     var contentKey: String {
-        var key = imagePaths.joined(separator: "\n")
+        // The version changes when SwiftCut makes the videos differently, so old ones are made again
+        // (2: see-through parts kept their brightness).
+        var key = "v2|" + imagePaths.joined(separator: "\n")
         key += "|\(frameSize.map(\.title) ?? "match")|\(fit.rawValue)|\(frameDuration.value)/\(frameDuration.timescale)"
         if isStill { key += "|\(frameCount)" }
         let digest = SHA256.hash(data: Data(key.utf8))

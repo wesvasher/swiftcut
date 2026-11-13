@@ -150,6 +150,9 @@ struct ClipInspectorView: View {
 
                 if clip.hasVideo {
                     effects
+                    if clip.canEnhance {
+                        BackgroundSection(clip: clip)
+                    }
                     color
                     GradeSection(clip: clip, controller: controller)
                 }
@@ -646,6 +649,118 @@ private struct GradeSection: View {
 }
 
 /// Name and range of a subclip, and a link back to its source video.
+/// What shows in a clip's transparent areas: its own transparency, and the space around the
+/// picture when it's scaled down or moved (Video section). Transparent by default, shown in the
+/// viewer as a gray checkerboard; or a color, picked from swatches or any color.
+struct BackgroundSection: View {
+    @Bindable var clip: Clip
+
+    var body: some View {
+        InspectorSection("Background") {
+            GridRow {
+                InspectorLabel("Fill")
+                HStack(spacing: 4) {
+                    transparentSwatch
+                    ForEach(RGBAColor.backgroundSwatches, id: \.name) { swatch in
+                        colorSwatch(swatch.color, name: swatch.name)
+                    }
+                }
+                .frame(maxWidth: .infinity, alignment: .leading)
+            }
+            GridRow {
+                InspectorLabel("Custom")
+                ColorPicker("Custom Color", selection: Binding(
+                    get: { clip.layout.backgroundColor.cgColor },
+                    set: { if let color = RGBAColor($0) { setColor(color) } }
+                ), supportsOpacity: false)
+                .labelsHidden()
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .help("Pick any color")
+            }
+            InspectorRow("Shows", clip.layout.background == .transparent ? "Transparent" : clip.layout.backgroundColor.swatchName)
+            GridRow {
+                Text(note)
+                    .font(.caption2)
+                    .foregroundStyle(.secondary)
+                    .fixedSize(horizontal: false, vertical: true)
+                    .gridCellColumns(2)
+            }
+        }
+    }
+
+    private var note: String {
+        let where_ = clip.hasAlpha
+            ? "Shows through where this clip is transparent, and around the picture when it's scaled down or moved in Video."
+            : "This clip has no transparency of its own; the background shows around the picture when it's scaled down or moved in Video."
+        let how = clip.layout.background == .transparent
+            ? " Transparent shows as a checkerboard in the viewer. Only Apple ProRes 4444 exports keep it; other formats show black."
+            : ""
+        return where_ + how
+    }
+
+    private func setColor(_ color: RGBAColor) {
+        if clip.layout.backgroundColor != color { clip.layout.backgroundColor = color }
+        if clip.layout.background != .color { clip.layout.background = .color }
+    }
+
+    private var transparentSwatch: some View {
+        let isSelected = clip.layout.background == .transparent
+        return Button {
+            clip.layout.background = .transparent
+        } label: {
+            Checkerboard()
+                .clipShape(Circle())
+                .swatchRing(isSelected)
+        }
+        .buttonStyle(.plain)
+        .help("Transparent: leave it see-through (a checkerboard in the viewer)")
+        .accessibilityLabel("Transparent")
+        .accessibilityAddTraits(isSelected ? .isSelected : [])
+    }
+
+    private func colorSwatch(_ color: RGBAColor, name: String) -> some View {
+        let isSelected = clip.layout.background == .color && clip.layout.backgroundColor.isClose(to: color)
+        return Button {
+            setColor(color)
+        } label: {
+            Circle()
+                .fill(Color(cgColor: color.cgColor))
+                .overlay(Circle().strokeBorder(.primary.opacity(0.25), lineWidth: 0.5))
+                .swatchRing(isSelected)
+        }
+        .buttonStyle(.plain)
+        .help(name)
+        .accessibilityLabel(name)
+        .accessibilityAddTraits(isSelected ? .isSelected : [])
+    }
+}
+
+/// The gray and dark gray checkerboard the viewer shows for transparency, small, for a swatch.
+private struct Checkerboard: View {
+    var body: some View {
+        Canvas { context, size in
+            let cell = size.width / 4
+            context.fill(Path(CGRect(origin: .zero, size: size)), with: .color(Color(white: 0.42)))
+            for row in 0..<4 {
+                for column in 0..<4 where (row + column) % 2 == 0 {
+                    context.fill(Path(CGRect(x: CGFloat(column) * cell, y: CGFloat(row) * cell, width: cell, height: cell)),
+                                 with: .color(Color(white: 0.30)))
+                }
+            }
+        }
+    }
+}
+
+private extension View {
+    /// A swatch's size, with an accent ring when it's the one chosen.
+    func swatchRing(_ isSelected: Bool) -> some View {
+        frame(width: 14, height: 14)
+            .padding(2)
+            .overlay(Circle().strokeBorder(isSelected ? Color.accentColor : .clear, lineWidth: 2))
+            .contentShape(Circle())
+    }
+}
+
 /// One effect's accordion inside the Effects section. The header shows whether it's on (the dot),
 /// its status while collapsed, and a menu to clear it or save and load its presets. The open or
 /// closed state is remembered per effect.
@@ -890,28 +1005,6 @@ private struct FrameRows: View {
             sliderRow(value: $clip.layout.offsetY, in: -1...1, reset: 0,
                       label: pixels(clip.layout.offsetY * clip.outputSize.height),
                       help: "Move the picture up or down, in pixels of the frame")
-        }
-        GridRow {
-            InspectorLabel("Background")
-            HStack(spacing: 6) {
-                Picker("Background", selection: $clip.layout.background) {
-                    Text("Color").tag(FrameLayout.Background.color)
-                    Text("Transparent").tag(FrameLayout.Background.transparent)
-                }
-                .labelsHidden()
-                .pickerStyle(.menu)
-                .fixedSize()
-                if clip.layout.background == .color {
-                    ColorPicker("Background Color", selection: Binding(
-                        get: { clip.layout.backgroundColor.cgColor },
-                        set: { if let color = RGBAColor($0) { clip.layout.backgroundColor = color } }
-                    ), supportsOpacity: false)
-                    .labelsHidden()
-                }
-            }
-            .help(clip.layout.background == .color
-                  ? "The color around the picture when it doesn't fill the frame"
-                  : "Leave the space around the picture clear. Only Apple ProRes 4444 exports keep transparency; other formats show black. The viewer shows it as a checkerboard.")
         }
         if !clip.layout.isIdentity {
             GridRow {
