@@ -29,7 +29,7 @@ extension ProjectStore {
             }
         }
         // Watch the new folders from now on (they've just been brought in, so they're up to date).
-        if result.madeFolders { watchFolders(syncNew: false) }
+        if result.madeFolders { watchFolders(justImported: true) }
         let files = urls.filter { !ImageSequence.isFolder($0) }
         result.clips += importFiles(files)
         let looseImages = files.filter(ImageSequence.isImage)
@@ -111,7 +111,7 @@ extension ProjectStore {
         let tree = folderTree(id)
         removeClips(Set(clips.filter { $0.folderID.map(tree.contains) ?? false }.map(\.id)))
         folders.removeAll { tree.contains($0.id) }
-        watchFolders(syncNew: false)
+        watchFolders()
     }
 
     /// Removes folders with nothing in them (after an import was cancelled).
@@ -135,10 +135,11 @@ extension ProjectStore {
     /// (or a photo still being written) isn't added half-finished.
     static var settleTime: TimeInterval { 2 }
 
-    /// Watches every top-level folder that came from disk, and stops watching removed ones.
-    /// `syncNew` syncs folders it starts watching (after opening a project: things may have
-    /// changed meanwhile); just-imported folders are already up to date.
-    func watchFolders(syncNew: Bool) {
+    /// Watches every top-level folder that came from disk for changes, and stops watching removed
+    /// ones. Watching only notes that something changed; syncing happens when asked (the sync
+    /// button or Sync Now), so opening a big project or copying files in does no work on its own.
+    /// `justImported` marks new folders up to date (they were just brought in).
+    func watchFolders(justImported: Bool = false) {
         let watched = folders.filter { $0.parentID == nil && $0.path != nil }
         let ids = Set(watched.map(\.id))
         for (id, watcher) in folderWatchers where !ids.contains(id) {
@@ -154,10 +155,8 @@ extension ProjectStore {
                 continue
             }
             let id = folder.id
-            folderWatchers[id] = FolderWatcher(url: url) { [weak self] in self?.syncFolder(id) }
-            if syncNew {
-                syncFolder(id)
-            } else if folderSync[id] == nil {
+            folderWatchers[id] = FolderWatcher(url: url) { [weak self] in self?.noteChange(in: id) }
+            if justImported, folderSync[id] == nil {
                 folderSync[id] = .upToDate(at: .now)
             }
         }
@@ -173,6 +172,14 @@ extension ProjectStore {
             }
         }
         return folder.url
+    }
+
+    /// Something changed in a watched folder on disk: say so, and leave syncing to the button.
+    private func noteChange(in id: UUID) {
+        switch folderSync[id] {
+        case .syncing, .unavailable: break
+        default: folderSync[id] = .changed
+        }
     }
 
     /// What a sync found, for the status.

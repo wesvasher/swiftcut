@@ -27,8 +27,10 @@ nonisolated struct MediaFolder: Codable, Hashable, Identifiable, Sendable {
 
 /// Where a watched folder stands, for the sidebar's status icon. Not saved.
 enum FolderSyncState: Equatable {
-    /// Matches the folder on disk, as of `at`.
+    /// Matches the folder on disk, as of `at` (when it was last synced).
     case upToDate(at: Date)
+    /// Something in the folder changed on disk since the last sync. Syncing waits for the button.
+    case changed
     case syncing
     /// Matches as far as it can, but something needs a look (`message` says what).
     case attention(String)

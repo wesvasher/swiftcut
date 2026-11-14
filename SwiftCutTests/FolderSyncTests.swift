@@ -53,13 +53,17 @@ struct FolderSyncTests {
         #expect(store.clips.contains { $0.name == "e" })
     }
 
-    @Test @MainActor func theWatcherNoticesNewFiles() async throws {
+    @Test @MainActor func theWatcherOnlyMarksChanges() async throws {
         let (store, root, trip) = try await Self.storeWithTrip()
         let before = store.allClips(inFolder: trip.id).count
-        // As if copied in from Finder.
+        // As if copied in from Finder: the folder is marked, but nothing is brought in yet.
         _ = try await Self.video("from finder", in: root)
-        try await ImageSequenceTests.waitUntil(seconds: 15) { store.allClips(inFolder: trip.id).count > before }
+        try await ImageSequenceTests.waitUntil(seconds: 15) { store.folderSync[trip.id] == .changed }
+        #expect(store.allClips(inFolder: trip.id).count == before)
+        // The sync button brings it in.
+        store.syncFolder(trip.id, interactive: true)
         #expect(store.clips(inFolder: trip.id).contains { $0.name == "from finder" })
+        guard case .upToDate = store.folderSync[trip.id] else { Issue.record("not up to date"); return }
     }
 
     @Test @MainActor func newSubfoldersAndMissingFiles() async throws {
@@ -151,7 +155,7 @@ struct FolderSyncTests {
         #expect(store.clips(inFolder: trip.id).contains { $0.name == "poster" })
     }
 
-    @Test @MainActor func watchingResumesWhenTheProjectOpens() async throws {
+    @Test @MainActor func openingAProjectDoesNoFolderWork() async throws {
         let (store, root, trip) = try await Self.storeWithTrip()
         let saved = try JSONEncoder().encode(store.projectFile)
         // Something new while the project was closed.
@@ -159,7 +163,12 @@ struct FolderSyncTests {
 
         let reopened = ProjectStore(exporter: ExportManager.test("FolderSyncTests"))
         reopened.apply(try JSONDecoder().decode(ProjectFile.self, from: saved))
+        // Watched again, but not synced: opening stays quick.
         #expect(reopened.folderWatchers[trip.id] != nil)
+        #expect(reopened.folderSync[trip.id] == nil)
+        #expect(!reopened.clips.contains { $0.name == "while closed" })
+        // Until the sync button.
+        reopened.syncFolder(trip.id, interactive: true)
         #expect(reopened.clips(inFolder: trip.id).contains { $0.name == "while closed" })
     }
 }

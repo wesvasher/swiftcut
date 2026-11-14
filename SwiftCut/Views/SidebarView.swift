@@ -374,7 +374,7 @@ struct FolderSyncControls: View {
             .buttonStyle(.borderless)
             .foregroundStyle(.secondary)
             .disabled(isSyncing)
-            .help("Sync now: bring in what's new in the folder on disk. SwiftCut also watches it and syncs on its own.")
+            .help("Sync: bring in what's new in the folder on disk. SwiftCut notices changes, but syncs only when you click here.")
             .accessibilityLabel("Sync folder")
         }
     }
@@ -393,6 +393,12 @@ struct FolderSyncControls: View {
                 .foregroundStyle(.green)
                 .help("Up to date with the folder on disk (synced \(date.formatted(date: .omitted, time: .shortened))). Watching for changes.")
                 .accessibilityLabel("Up to date")
+        case .changed:
+            Image(systemName: "circle.fill")
+                .font(.system(size: 7))
+                .foregroundStyle(.orange)
+                .help("Changes on disk since the last sync. Click Sync to bring them in.")
+                .accessibilityLabel("Changed on disk")
         case .attention(let message):
             Image(systemName: "exclamationmark.circle.fill")
                 .font(.caption)
@@ -409,7 +415,8 @@ struct FolderSyncControls: View {
             Image(systemName: "circle.dashed")
                 .font(.caption)
                 .foregroundStyle(.tertiary)
-                .help("Not watched yet")
+                .help("Not synced since the project opened. Click Sync to check the folder for anything new.")
+                .accessibilityLabel("Not synced yet")
         }
     }
 }

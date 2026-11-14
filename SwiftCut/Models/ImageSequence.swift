@@ -304,8 +304,13 @@ nonisolated struct ImageSequence: Codable, Hashable, Sendable {
     }
 
     static var cacheFolder: URL {
-        URL.cachesDirectory.appending(path: "Image Sequences", directoryHint: .isDirectory)
+        // Under the test runner, a folder of its own, so test videos don't pile up in the app's cache.
+        isTesting
+            ? URL.temporaryDirectory.appending(path: "Test Image Sequences", directoryHint: .isDirectory)
+            : URL.cachesDirectory.appending(path: "Image Sequences", directoryHint: .isDirectory)
     }
+
+    private static let isTesting = ProcessInfo.processInfo.environment.keys.contains { $0.hasPrefix("XCTest") }
 
     // MARK: Finding images
 

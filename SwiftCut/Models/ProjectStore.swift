@@ -342,8 +342,9 @@ final class ProjectStore {
 
         pruneSelection()
         refreshImageSequences()
-        // Opening a project: watch its folders again, and catch up on changes while it was closed.
-        watchFolders(syncNew: true)
+        // Opening a project: watch its folders again for changes (syncing waits for the button,
+        // so a big project opens without folder work).
+        watchFolders()
     }
 
     /// Selects something sensible after opening a project.
