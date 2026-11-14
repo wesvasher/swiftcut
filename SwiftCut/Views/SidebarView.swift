@@ -98,12 +98,23 @@ struct SidebarView: View {
                     clipEntry(clip)
                 }
             } label: {
-                Label(folder.name, systemImage: "folder.fill")
-                    .lineLimit(1)
-                    .truncationMode(.middle)
-                    .badge(store.allClips(inFolder: folder.id).count)
-                    .help(folder.path.map { "From \($0.abbreviatingWithTilde)" } ?? folder.name)
-                    .contextMenu { folderMenu(folder) }
+                HStack(spacing: 6) {
+                    Label(folder.name, systemImage: "folder.fill")
+                        .lineLimit(1)
+                        .truncationMode(.middle)
+                        .help(folder.path.map { "From \($0.abbreviatingWithTilde)" } ?? folder.name)
+                    Spacer(minLength: 4)
+                    Text(store.allClips(inFolder: folder.id).count.formatted())
+                        .font(.caption.monospacedDigit())
+                        .foregroundStyle(.secondary)
+                    // Top-level folders are watched: where they stand, and a button to sync now.
+                    if folder.parentID == nil, folder.path != nil {
+                        FolderSyncControls(state: store.folderSync[folder.id]) {
+                            store.syncFolder(folder.id, interactive: true)
+                        }
+                    }
+                }
+                .contextMenu { folderMenu(folder) }
             }
         )
     }
@@ -122,6 +133,11 @@ struct SidebarView: View {
         if let path = folder.path {
             Button("Show in Finder", systemImage: "folder") {
                 NSWorkspace.shared.activateFileViewerSelecting([URL(filePath: path)])
+            }
+        }
+        if folder.parentID == nil, folder.path != nil {
+            Button("Sync Now", systemImage: "arrow.triangle.2.circlepath") {
+                store.syncFolder(folder.id, interactive: true)
             }
         }
         Divider()
@@ -337,5 +353,63 @@ struct ClipThumbnail: View {
             }
         }
         .clipped()
+    }
+}
+
+/// A watched folder's status icon and sync button. The icon says where it stands: up to date,
+/// syncing, something to look at, or not found; its tooltip says more. The button syncs now.
+struct FolderSyncControls: View {
+    let state: FolderSyncState?
+    let sync: () -> Void
+
+    var body: some View {
+        HStack(spacing: 4) {
+            status
+                .frame(width: 14, height: 14)
+            Button(action: sync) {
+                Image(systemName: "arrow.triangle.2.circlepath")
+                    .font(.caption)
+                    .symbolEffect(.rotate, isActive: isSyncing)
+            }
+            .buttonStyle(.borderless)
+            .foregroundStyle(.secondary)
+            .disabled(isSyncing)
+            .help("Sync now: bring in what's new in the folder on disk. SwiftCut also watches it and syncs on its own.")
+            .accessibilityLabel("Sync folder")
+        }
+    }
+
+    private var isSyncing: Bool { state == .syncing }
+
+    @ViewBuilder
+    private var status: some View {
+        switch state {
+        case .syncing:
+            ProgressView().controlSize(.mini)
+                .help("Syncing with the folder on disk…")
+        case .upToDate(let date):
+            Image(systemName: "checkmark.circle.fill")
+                .font(.caption)
+                .foregroundStyle(.green)
+                .help("Up to date with the folder on disk (synced \(date.formatted(date: .omitted, time: .shortened))). Watching for changes.")
+                .accessibilityLabel("Up to date")
+        case .attention(let message):
+            Image(systemName: "exclamationmark.circle.fill")
+                .font(.caption)
+                .foregroundStyle(.orange)
+                .help(message)
+                .accessibilityLabel("Needs attention: \(message)")
+        case .unavailable(let message):
+            Image(systemName: "xmark.octagon.fill")
+                .font(.caption)
+                .foregroundStyle(.red)
+                .help(message)
+                .accessibilityLabel("Not found: \(message)")
+        case nil:
+            Image(systemName: "circle.dashed")
+                .font(.caption)
+                .foregroundStyle(.tertiary)
+                .help("Not watched yet")
+        }
     }
 }

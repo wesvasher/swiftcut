@@ -28,8 +28,10 @@
 		2A66044774808044A3097083 /* DeepExportTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = A61C48BDD9594AA1DB952E8C /* DeepExportTests.swift */; };
 		2ABBC235286FB6CBCD945B42 /* Bob.c in Sources */ = {isa = PBXBuildFile; fileRef = 70F43BF22B7AD1C5C8A1563D /* Bob.c */; };
 		2C4DD0AA8CB8CE4367772C0C /* ProjectStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = CA40600C8B1D09EBA8019AD5 /* ProjectStore.swift */; };
+		2E1A6B8012FDBE3313E38D0B /* FolderWatcher.swift in Sources */ = {isa = PBXBuildFile; fileRef = 72E9807D9783CECB39022E3C /* FolderWatcher.swift */; };
 		2E365BC4BBCCD7B1B3033B2A /* ExportEstimate.swift in Sources */ = {isa = PBXBuildFile; fileRef = 56801EDF21C9E373F8164C49 /* ExportEstimate.swift */; };
 		325B9222CEAE651D233D9E46 /* SpaceBarTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 6B8C6722F9612990561D8403 /* SpaceBarTests.swift */; };
+		345CECDC85EB879FC0D32220 /* FolderSyncTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 16E4F38F402A31D3A8C346DF /* FolderSyncTests.swift */; };
 		34763788FA36B6B9813E2214 /* EffectKind.swift in Sources */ = {isa = PBXBuildFile; fileRef = 095349E66162726FBB37954B /* EffectKind.swift */; };
 		359D5F7A225B9AC0ADF4871C /* FilmGrain.swift in Sources */ = {isa = PBXBuildFile; fileRef = D14281327B6184AB008FFE88 /* FilmGrain.swift */; };
 		35A53A873A5C28B063223F9D /* PreviewQualityTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = D7F3715A04C3D53830734460 /* PreviewQualityTests.swift */; };
@@ -144,6 +146,7 @@
 		10D13FE39F0DBF9DBF2AA112 /* TimelineLayoutTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TimelineLayoutTests.swift; sourceTree = "<group>"; };
 		12C7CE7EC41C1D9D4F44F4D5 /* FrameLayout.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FrameLayout.swift; sourceTree = "<group>"; };
 		1629CEE7E3AF0AE89C798120 /* ImageSequence.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ImageSequence.swift; sourceTree = "<group>"; };
+		16E4F38F402A31D3A8C346DF /* FolderSyncTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FolderSyncTests.swift; sourceTree = "<group>"; };
 		195CA63D6F8C395AB1C7E384 /* HelpTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = HelpTests.swift; sourceTree = "<group>"; };
 		1AF55AE9F9B242FA2BCDBFA9 /* SidebarView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SidebarView.swift; sourceTree = "<group>"; };
 		1B3304544D84AE437A706B92 /* VolumeEnvelope.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = VolumeEnvelope.swift; sourceTree = "<group>"; };
@@ -180,6 +183,7 @@
 		6FB1AAAF26CA5BCD2A9721D5 /* Help */ = {isa = PBXFileReference; lastKnownFileType = folder; name = Help; path = SwiftCut/Resources/Help; sourceTree = SOURCE_ROOT; };
 		70F43BF22B7AD1C5C8A1563D /* Bob.c */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.c; path = Bob.c; sourceTree = "<group>"; };
 		72C97ACC847E4DF3B39889F0 /* ColorSettingsView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ColorSettingsView.swift; sourceTree = "<group>"; };
+		72E9807D9783CECB39022E3C /* FolderWatcher.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FolderWatcher.swift; sourceTree = "<group>"; };
 		74F1BE0F1C7B97A24C6786B1 /* Deinterlacer.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Deinterlacer.swift; sourceTree = "<group>"; };
 		7851F2E03E080FEACC2B5416 /* ClipInspectorView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ClipInspectorView.swift; sourceTree = "<group>"; };
 		78F1BC69912FF8603382B435 /* MediaFolder.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MediaFolder.swift; sourceTree = "<group>"; };
@@ -376,6 +380,7 @@
 				F6BA4AA90E73EA53FB016421 /* ExportPresetTests.swift */,
 				2BA38B1901FAB0329B6D0FE2 /* ExportProgressTests.swift */,
 				81CEE969A1CC574BB8ED2ABB /* FilmGrainTests.swift */,
+				16E4F38F402A31D3A8C346DF /* FolderSyncTests.swift */,
 				660BEA0EEDB8A9F0161ECF44 /* FolderTests.swift */,
 				7D8AB2074771634D90A2759D /* FrameCopyTests.swift */,
 				E8AF2D3961647FF9F82198A7 /* FrameLayoutTests.swift */,
@@ -422,6 +427,7 @@
 				CD8A49CD46E8D3AA7625EA3F /* Enhancer.swift */,
 				4FA672AC91EC9205E304A02B /* ExportManager.swift */,
 				D14281327B6184AB008FFE88 /* FilmGrain.swift */,
+				72E9807D9783CECB39022E3C /* FolderWatcher.swift */,
 				FE60CD788DC0A86F8372E9D8 /* FrameClipboard.swift */,
 				5C7188CAD78D157AEFD1E1D8 /* FrameThumbnails.swift */,
 				52A00059AE6CD629EF41B422 /* ImageSequenceWriter.swift */,
@@ -556,6 +562,7 @@
 				93B115B3D307B5A4C8D8F513 /* ExportPresetsSettingsView.swift in Sources */,
 				BD95253FA635A0635E52C2C3 /* ExportToolbar.swift in Sources */,
 				359D5F7A225B9AC0ADF4871C /* FilmGrain.swift in Sources */,
+				2E1A6B8012FDBE3313E38D0B /* FolderWatcher.swift in Sources */,
 				99E6EC2532F57A7B50444CF8 /* FrameClipboard.swift in Sources */,
 				F2FE9671519D6FA3D09D9B81 /* FrameClock.swift in Sources */,
 				E84B7E964A62AA2FD14E7E4A /* FrameLayout.swift in Sources */,
@@ -625,6 +632,7 @@
 				5ED7CCAC40354C5CAAD0EFE2 /* ExportPresetTests.swift in Sources */,
 				C268D109A88E57384402E6CB /* ExportProgressTests.swift in Sources */,
 				3773E2D6C7D1C991014CD49A /* FilmGrainTests.swift in Sources */,
+				345CECDC85EB879FC0D32220 /* FolderSyncTests.swift in Sources */,
 				0D9EC289B91FFF23ABC13F38 /* FolderTests.swift in Sources */,
 				AAD22BF20E4E707579CAF6D5 /* FrameCopyTests.swift in Sources */,
 				BE231AD18A54EA7E9EB20833 /* FrameLayoutTests.swift in Sources */,

@@ -28,6 +28,8 @@ extension ProjectStore {
                 result.madeFolders = true
             }
         }
+        // Watch the new folders from now on (they've just been brought in, so they're up to date).
+        if result.madeFolders { watchFolders(syncNew: false) }
         let files = urls.filter { !ImageSequence.isFolder($0) }
         result.clips += importFiles(files)
         let looseImages = files.filter(ImageSequence.isImage)
@@ -47,7 +49,9 @@ extension ProjectStore {
         let contents = ((try? FileManager.default.contentsOfDirectory(
             at: folder, includingPropertiesForKeys: [.isDirectoryKey, .contentTypeKey], options: [.skipsHiddenFiles])) ?? [])
             .sorted { $0.lastPathComponent.localizedStandardCompare($1.lastPathComponent) == .orderedAscending }
-        let mediaFolder = MediaFolder(name: folder.lastPathComponent, parentID: parentID, path: folder.path(percentEncoded: false))
+        // The top folder keeps permission to read it after relaunching, to keep watching it.
+        let mediaFolder = MediaFolder(name: folder.lastPathComponent, parentID: parentID, path: folder.path(percentEncoded: false),
+                                      bookmark: parentID == nil ? Clip.makeBookmark(for: folder) : nil)
         folders.append(mediaFolder)
 
         var hasContent = false
@@ -107,6 +111,7 @@ extension ProjectStore {
         let tree = folderTree(id)
         removeClips(Set(clips.filter { $0.folderID.map(tree.contains) ?? false }.map(\.id)))
         folders.removeAll { tree.contains($0.id) }
+        watchFolders(syncNew: false)
     }
 
     /// Removes folders with nothing in them (after an import was cancelled).
@@ -120,6 +125,197 @@ extension ProjectStore {
                 if rawDevelopRequest?.sequences.contains(where: { $0.folderID == folder.id }) == true { continue }
                 folders.removeAll { $0.id == folder.id }
                 changed = true
+            }
+        }
+    }
+
+    // MARK: Keeping folders in sync
+
+    /// How long a file must go unchanged before it's brought in, so a video still being copied
+    /// (or a photo still being written) isn't added half-finished.
+    static var settleTime: TimeInterval { 2 }
+
+    /// Watches every top-level folder that came from disk, and stops watching removed ones.
+    /// `syncNew` syncs folders it starts watching (after opening a project: things may have
+    /// changed meanwhile); just-imported folders are already up to date.
+    func watchFolders(syncNew: Bool) {
+        let watched = folders.filter { $0.parentID == nil && $0.path != nil }
+        let ids = Set(watched.map(\.id))
+        for (id, watcher) in folderWatchers where !ids.contains(id) {
+            watcher.stop()
+            folderWatchers[id] = nil
+            folderSync[id] = nil
+            folderRechecks[id]?.cancel()
+            folderRechecks[id] = nil
+        }
+        for folder in watched where folderWatchers[folder.id] == nil {
+            guard let url = accessibleURL(of: folder), ImageSequence.isFolder(url) else {
+                folderSync[folder.id] = .unavailable("Can't find “\(folder.name)” at \((folder.path ?? "").abbreviatingWithTilde). It may have been moved, deleted, or be on a drive that isn't connected.")
+                continue
+            }
+            let id = folder.id
+            folderWatchers[id] = FolderWatcher(url: url) { [weak self] in self?.syncFolder(id) }
+            if syncNew {
+                syncFolder(id)
+            } else if folderSync[id] == nil {
+                folderSync[id] = .upToDate(at: .now)
+            }
+        }
+    }
+
+    /// The folder's location, with permission to read it (from its saved permission when there is one).
+    private func accessibleURL(of folder: MediaFolder) -> URL? {
+        if let data = folder.bookmark {
+            var isStale = false
+            if let url = try? URL(resolvingBookmarkData: data, options: .withSecurityScope, bookmarkDataIsStale: &isStale) {
+                _ = url.startAccessingSecurityScopedResource()
+                return url
+            }
+        }
+        return folder.url
+    }
+
+    /// What a sync found, for the status.
+    private struct SyncReport {
+        var missing = 0
+        /// Folders with images that have no clips yet (and their sidebar folders).
+        var waitingImages: [(url: URL, folderID: UUID)] = []
+        /// Some files were still being written; another sync is due.
+        var unsettled = false
+    }
+
+    /// Brings a top-level folder (and the folders inside it) in line with the folder on disk:
+    /// new videos and subfolders are added, image sequences and stills from it gain the new
+    /// images, and what's gone is reported. `interactive` (the sync button) also asks how to
+    /// import images the folder didn't have clips for.
+    func syncFolder(_ id: UUID, interactive: Bool = false) {
+        guard let folder = folder(for: id), let url = accessibleURL(of: folder) else { return }
+        guard ImageSequence.isFolder(url) else {
+            folderSync[id] = .unavailable("Can't find “\(folder.name)” at \((folder.path ?? "").abbreviatingWithTilde). It may have been moved, deleted, or be on a drive that isn't connected.")
+            return
+        }
+        folderSync[id] = .syncing
+        // Moved on disk (its saved permission follows it): note where it is now.
+        if let old = folder.path, url.standardizedFileURL != folder.url?.standardizedFileURL {
+            relocate(id, from: old, to: url.path(percentEncoded: false))
+        }
+        guard let folder = self.folder(for: id) else { return }
+        var report = SyncReport()
+        sync(folder, at: url, report: &report)
+        refreshImageSequences()
+
+        if report.unsettled {
+            folderRechecks[id]?.cancel()
+            folderRechecks[id] = Task { [weak self] in
+                try? await Task.sleep(for: .seconds(Self.settleTime + 1))
+                guard !Task.isCancelled else { return }
+                self?.syncFolder(id)
+            }
+        }
+        if interactive, !report.waitingImages.isEmpty, pendingImageImport == nil {
+            pendingImageImport = PendingImageImport(
+                folders: report.waitingImages.map(\.url), images: [], timelineIndex: nil,
+                destinations: Dictionary(report.waitingImages.map { ($0.url.standardizedFileURL, $0.folderID) },
+                                         uniquingKeysWith: { first, _ in first }))
+        }
+
+        var notes: [String] = []
+        if report.missing > 0 {
+            notes.append(report.missing == 1 ? "1 file is missing from the folder on disk."
+                         : "\(report.missing) files are missing from the folder on disk.")
+        }
+        if !report.waitingImages.isEmpty, !interactive {
+            notes.append("New images haven't been imported yet. Click Sync to choose how.")
+        }
+        folderSync[id] = notes.isEmpty ? .upToDate(at: .now) : .attention(notes.joined(separator: " "))
+    }
+
+    /// Points a folder (and the folders inside it) at where it now is on disk.
+    private func relocate(_ id: UUID, from old: String, to new: String) {
+        let tree = folderTree(id)
+        let oldPrefix = old.hasSuffix("/") ? old : old + "/", newPrefix = new.hasSuffix("/") ? new : new + "/"
+        for index in folders.indices where tree.contains(folders[index].id) {
+            guard let path = folders[index].path else { continue }
+            if path == old || path == oldPrefix {
+                folders[index].path = new
+            } else if path.hasPrefix(oldPrefix) {
+                folders[index].path = newPrefix + path.dropFirst(oldPrefix.count)
+            }
+        }
+    }
+
+    /// Syncs one folder's own files, then the folders inside it.
+    private func sync(_ folder: MediaFolder, at url: URL, report: inout SyncReport) {
+        let contents = ((try? FileManager.default.contentsOfDirectory(
+            at: url, includingPropertiesForKeys: [.isDirectoryKey, .contentTypeKey, .contentModificationDateKey],
+            options: [.skipsHiddenFiles])) ?? [])
+            .sorted { $0.lastPathComponent.localizedStandardCompare($1.lastPathComponent) == .orderedAscending }
+        let settledBefore = Date.now.addingTimeInterval(-Self.settleTime)
+        func isSettled(_ file: URL) -> Bool {
+            let modified = (try? file.resourceValues(forKeys: [.contentModificationDateKey]).contentModificationDate) ?? .distantPast
+            return modified < settledBefore
+        }
+        let here = url.standardizedFileURL
+
+        // New videos.
+        let known = Set(clips.map { $0.url.standardizedFileURL })
+        let videos = contents.filter { !ImageSequence.isFolder($0) && MediaLoader.isSupported($0) && !known.contains($0.standardizedFileURL) }
+        let readyVideos = videos.filter(isSettled)
+        if readyVideos.count < videos.count { report.unsettled = true }
+        if !readyVideos.isEmpty { importFiles(readyVideos, folderID: folder.id) }
+
+        // Images: into the sequences and stills already made from this folder.
+        let images = contents.filter(ImageSequence.isImage)
+        let readyImages = images.filter(isSettled)
+        if readyImages.count < images.count { report.unsettled = true }
+        let fromHere = clips.filter { clip in
+            clip.imageSequence?.imageURLs.first.map { $0.deletingLastPathComponent().standardizedFileURL == here } ?? false
+        }
+        let sequences = fromHere.filter { $0.imageSequence?.isStill == false }
+        let stills = fromHere.filter { $0.imageSequence?.isStill == true }
+        let readyPaths = readyImages.map { $0.path(percentEncoded: false) }
+        for clip in sequences {
+            guard !readyPaths.isEmpty, clip.imageSequence?.imagePaths != readyPaths else { continue }
+            // The sequence follows the folder: new frames join, deleted ones drop out. Its video is made again.
+            clip.imageSequence?.imagePaths = readyPaths
+        }
+        if !stills.isEmpty, sequences.isEmpty, let template = stills.first?.imageSequence {
+            let have = Set(stills.compactMap { $0.imageSequence?.imagePaths.first })
+            let new = readyImages.filter { !have.contains($0.path(percentEncoded: false)) }.map { image in
+                // A new still made like the others (frame size, rate, length, RAW development).
+                var still = template
+                still.name = image.deletingPathExtension().lastPathComponent
+                still.imagePaths = [image.path(percentEncoded: false)]
+                still.folderID = folder.id
+                return still
+            }
+            if !new.isEmpty { addSequences(new) }
+        }
+        if fromHere.isEmpty, !readyImages.isEmpty,
+           pendingImageImport?.destinations[here] == nil, !(rawDevelopRequest?.sequences.contains { $0.folderID == folder.id } ?? false) {
+            report.waitingImages.append((url, folder.id))
+        }
+
+        // What's gone.
+        report.missing += clips.filter {
+            $0.folderID == folder.id && $0.imageSequence == nil
+                && !FileManager.default.fileExists(atPath: $0.url.path(percentEncoded: false))
+        }.count
+
+        // Folders inside: new ones are added, and every one is synced.
+        for subfolder in contents where ImageSequence.isFolder(subfolder) {
+            let path = subfolder.standardizedFileURL
+            if let existing = folders.first(where: { $0.parentID == folder.id && $0.url?.standardizedFileURL == path }) {
+                sync(existing, at: subfolder, report: &report)
+            } else {
+                let child = MediaFolder(name: subfolder.lastPathComponent, parentID: folder.id, path: subfolder.path(percentEncoded: false))
+                folders.append(child)
+                let waitingBefore = report.waitingImages.count
+                sync(child, at: subfolder, report: &report)
+                // Nothing to show for it (yet): leave it out until there is.
+                if clips(inFolder: child.id).isEmpty, folders(in: child.id).isEmpty, report.waitingImages.count == waitingBefore {
+                    folders.removeAll { $0.id == child.id }
+                }
             }
         }
     }

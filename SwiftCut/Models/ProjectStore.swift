@@ -13,6 +13,12 @@ final class ProjectStore {
     var subclips: [Subclip] = []
     /// Folders in Source Videos, made from dropped folders. Clips say which they're in.
     var folders: [MediaFolder] = []
+    /// Where each watched (top-level) folder stands, for its status icon.
+    var folderSync: [UUID: FolderSyncState] = [:]
+    /// Watches each top-level folder on disk for changes.
+    @ObservationIgnored var folderWatchers: [UUID: FolderWatcher] = [:]
+    /// Syncs waiting for files that were still being written to settle.
+    @ObservationIgnored var folderRechecks: [UUID: Task<Void, Never>] = [:]
     var timeline: [TimelineItem] = []
     /// The timeline's frame size, frame rate, and fit (timeline inspector's Timeline Settings section).
     var timelineSettings = TimelineSettings()
@@ -336,6 +342,8 @@ final class ProjectStore {
 
         pruneSelection()
         refreshImageSequences()
+        // Opening a project: watch its folders again, and catch up on changes while it was closed.
+        watchFolders(syncNew: true)
     }
 
     /// Selects something sensible after opening a project.
