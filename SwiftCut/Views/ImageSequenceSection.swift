@@ -109,6 +109,9 @@ struct ImageSequenceSection: View {
                 } else {
                     InspectorRow("Length", "\(sequence.duration.preciseTimecode) (\(sequence.frameCount.formatted()) frames)")
                 }
+                if let raw = sequence.raw {
+                    rawRows(raw)
+                }
                 status(sequence)
             }
             .task(id: sequence.imagePaths.first) {
@@ -116,6 +119,80 @@ struct ImageSequenceSection: View {
                 imageSize = await Task.detached { ImageSequenceWriter.firstImageInfo(first)?.size }.value
             }
         }
+    }
+
+    // MARK: RAW
+
+    /// Developing camera RAW photos: exposure, highlight recovery, and shadows.
+    @ViewBuilder
+    private func rawRows(_ raw: ImageSequence.RawDevelop) -> some View {
+        GridRow {
+            Divider().gridCellColumns(2)
+        }
+        GridRow {
+            HStack {
+                Text("RAW")
+                    .font(.caption.weight(.semibold))
+                    .foregroundStyle(.secondary)
+                Spacer()
+                Button("Reset RAW", systemImage: "arrow.counterclockwise") {
+                    clip.imageSequence?.raw = ImageSequence.RawDevelop()
+                }
+                .labelStyle(.iconOnly)
+                .buttonStyle(.borderless)
+                .disabled(raw.isDefault)
+                .help("Put Exposure, Highlights, and Shadows back to their defaults")
+            }
+            .gridCellColumns(2)
+        }
+        GridRow {
+            InspectorLabel("Exposure")
+            NumberStepper(value: rawBinding(\.exposure), range: ImageSequence.RawDevelop.exposureRange, step: 1.0 / 3,
+                          unit: "EV", fractionDigits: 2,
+                          presets: [(-2, "−2 stops"), (-1, "−1 stop"), (0, "Camera (0)"), (1, "+1 stop"), (2, "+2 stops")])
+        }
+        .help("Brighter or darker, in stops. The RAW has room to brighten shadows or darken highlights without losing detail.")
+        GridRow {
+            InspectorLabel("Highlights")
+            NumberStepper(value: percentBinding(\.highlightRecovery), range: 0...100, step: 10, unit: "%",
+                          presets: [(0, "Off (camera look)"), (50, "Some"), (100, "Full")])
+        }
+        .help("Highlight recovery: brings back the detail the camera's look clips to white (bright skies, lights), rolled off smoothly. 0% clips like the camera's own look.")
+        GridRow {
+            InspectorLabel("Shadows")
+            NumberStepper(value: percentBinding(\.shadows), range: 0...200, step: 10, unit: "%",
+                          presets: [(0, "No lift"), (50, "Less"), (100, "Camera (100%)"), (150, "More"), (200, "Most")])
+        }
+        .help("How much the shadows are lifted. 100% is the camera's own amount.")
+        GridRow {
+            Text("Developed from the RAW at full precision and saved as 12-bit Apple ProRes 4444 XQ. At full camera size the video is large; a 4K frame size makes it smaller.")
+                .font(.caption2)
+                .foregroundStyle(.secondary)
+                .fixedSize(horizontal: false, vertical: true)
+                .gridCellColumns(2)
+        }
+    }
+
+    private func rawBinding(_ keyPath: WritableKeyPath<ImageSequence.RawDevelop, Double>) -> Binding<Double> {
+        Binding(
+            get: { clip.imageSequence?.raw?[keyPath: keyPath] ?? 0 },
+            set: { value in
+                guard clip.imageSequence?.raw?[keyPath: keyPath] != value else { return }
+                clip.imageSequence?.raw?[keyPath: keyPath] = value
+            }
+        )
+    }
+
+    /// A 0…1 (or 0…2) setting shown as a percentage.
+    private func percentBinding(_ keyPath: WritableKeyPath<ImageSequence.RawDevelop, Double>) -> Binding<Double> {
+        Binding(
+            get: { ((clip.imageSequence?.raw?[keyPath: keyPath] ?? 0) * 100).rounded() },
+            set: { percent in
+                let value = percent / 100
+                guard abs((clip.imageSequence?.raw?[keyPath: keyPath] ?? -1) - value) > 1e-9 else { return }
+                clip.imageSequence?.raw?[keyPath: keyPath] = value
+            }
+        )
     }
 
     @ViewBuilder
@@ -260,4 +337,70 @@ struct SequenceProgressBadge: View {
     }
 
     private var percent: String { progress.formatted(.percent.precision(.fractionLength(0))) }
+}
+
+/// A number to type, − and + buttons, and a menu of common values. Changes only when a button
+/// or menu item is clicked or Return is pressed, not while typing, since each change can mean
+/// making a video again.
+struct NumberStepper: View {
+    @Binding var value: Double
+    let range: ClosedRange<Double>
+    let step: Double
+    let unit: String
+    var fractionDigits = 0
+    let presets: [(value: Double, title: String)]
+
+    var body: some View {
+        HStack(spacing: 4) {
+            Button("Less", systemImage: "minus") { set(Self.stepped(value, -1, by: step)) }
+                .disabled(value <= range.lowerBound + 1e-9)
+            TextField(unit, value: Binding(get: { value }, set: { set($0) }),
+                      format: .number.precision(.fractionLength(0...fractionDigits)))
+                .textFieldStyle(.roundedBorder)
+                .multilineTextAlignment(.trailing)
+                .monospacedDigit()
+                .frame(width: 48)
+            Text(unit).foregroundStyle(.secondary)
+            Button("More", systemImage: "plus") { set(Self.stepped(value, 1, by: step)) }
+                .disabled(value >= range.upperBound - 1e-9)
+            Menu {
+                ForEach(presets, id: \.value) { preset in
+                    Button {
+                        set(preset.value)
+                    } label: {
+                        if abs(preset.value - value) < 1e-6 {
+                            Label(preset.title, systemImage: "checkmark")
+                        } else {
+                            Text(preset.title)
+                        }
+                    }
+                }
+            } label: {
+                Image(systemName: "chevron.down")
+            }
+            .menuStyle(.borderlessButton)
+            .menuIndicator(.hidden)
+            .fixedSize()
+            .help("Common values")
+        }
+        .labelStyle(.iconOnly)
+        .buttonStyle(.borderless)
+        .frame(maxWidth: .infinity, alignment: .leading)
+    }
+
+    /// One step down (−1) or up (1), landing on the step's grid: 1/3-stop steps go 0.33, 0.67, 1.
+    static func stepped(_ value: Double, _ direction: Int, by step: Double) -> Double {
+        var position = value / step
+        // A value shown rounded (0.33 for a third) counts as on the grid, so steps don't stick.
+        if abs(position - position.rounded()) < 0.05 { position = position.rounded() }
+        let next = direction > 0 ? (position + 1e-6).rounded(.down) + 1 : (position - 1e-6).rounded(.up) - 1
+        return next * step
+    }
+
+    /// Held to the range, and rounded to what's shown.
+    private func set(_ newValue: Double) {
+        let scale = pow(10, Double(fractionDigits))
+        let clamped = min(range.upperBound, max(range.lowerBound, (newValue * scale).rounded() / scale))
+        if abs(clamped - value) > 1e-9 { value = clamped }
+    }
 }

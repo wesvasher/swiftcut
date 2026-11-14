@@ -14,6 +14,37 @@ nonisolated struct ImageSequence: Codable, Hashable, Sendable {
         var bookmark: Data?
     }
 
+    /// How camera RAW photos are developed: decoded at full precision with these settings
+    /// (Image Sequence section › RAW) instead of the camera's default look, which clips the
+    /// brightest highlights. `nil` for other kinds of images.
+    struct RawDevelop: Codable, Hashable, Sendable {
+        /// Brighter or darker, in stops.
+        var exposure = 0.0
+        /// 0 clips highlights like the camera's look; 1 keeps all the detail above white,
+        /// rolled off smoothly into the picture.
+        var highlightRecovery = 1.0
+        /// How much the shadows are lifted: 1 is the camera's default, 0 none, 2 twice as much.
+        var shadows = 1.0
+
+        static let exposureRange = -3.0...3.0
+        static let shadowsRange = 0.0...2.0
+
+        init(exposure: Double = 0, highlightRecovery: Double = 1, shadows: Double = 1) {
+            self.exposure = exposure
+            self.highlightRecovery = highlightRecovery
+            self.shadows = shadows
+        }
+
+        init(from decoder: Decoder) throws {
+            let c = try decoder.container(keyedBy: CodingKeys.self)
+            exposure = (try? c.decodeIfPresent(Double.self, forKey: .exposure)) ?? 0
+            highlightRecovery = (try? c.decodeIfPresent(Double.self, forKey: .highlightRecovery)) ?? 1
+            shadows = (try? c.decodeIfPresent(Double.self, forKey: .shadows)) ?? 1
+        }
+
+        var isDefault: Bool { self == RawDevelop() }
+    }
+
     struct FrameSize: Codable, Hashable, Sendable {
         var width: Int
         var height: Int
@@ -40,12 +71,22 @@ nonisolated struct ImageSequence: Codable, Hashable, Sendable {
     var isCustomFrameRate = false
     /// How long a single image lasts, in seconds. Not used for sequences.
     var stillDuration = 5.0
+    /// RAW development, for camera RAW photos.
+    var raw: RawDevelop?
 
     init(name: String, imagePaths: [String], access: [Access] = []) {
         self.name = name
         self.imagePaths = imagePaths
         self.access = access
         frameRate = imagePaths.count == 1 ? 30 : 24
+        raw = Self.isRaw(imagePaths.first) ? RawDevelop() : nil
+    }
+
+    /// Whether `path` is a camera RAW photo (Sony ARW, Canon CR3, Nikon NEF, DNG…).
+    static func isRaw(_ path: String?) -> Bool {
+        guard let path else { return false }
+        let type = UTType(filenameExtension: URL(filePath: path).pathExtension)
+        return type?.conforms(to: .rawImage) ?? false
     }
 
     init(from decoder: Decoder) throws {
@@ -59,6 +100,8 @@ nonisolated struct ImageSequence: Codable, Hashable, Sendable {
         frameRate = (try? c.decodeIfPresent(Double.self, forKey: .frameRate)) ?? 24
         isCustomFrameRate = (try? c.decodeIfPresent(Bool.self, forKey: .isCustomFrameRate)) ?? false
         stillDuration = (try? c.decodeIfPresent(Double.self, forKey: .stillDuration)) ?? 5
+        // RAW sequences from before RAW development get it now (and their videos are made again).
+        raw = (try? c.decodeIfPresent(RawDevelop.self, forKey: .raw)) ?? (Self.isRaw(imagePaths.first) ? RawDevelop() : nil)
     }
 
     var imageURLs: [URL] { imagePaths.map { URL(filePath: $0) } }
@@ -154,6 +197,7 @@ nonisolated struct ImageSequence: Codable, Hashable, Sendable {
         var key = "v2|" + imagePaths.joined(separator: "\n")
         key += "|\(frameSize.map(\.title) ?? "match")|\(fit.rawValue)|\(frameDuration.value)/\(frameDuration.timescale)"
         if isStill { key += "|\(frameCount)" }
+        if let raw { key += "|raw \(raw.exposure) \(raw.highlightRecovery) \(raw.shadows)" }
         let digest = SHA256.hash(data: Data(key.utf8))
         return digest.prefix(12).map { String(format: "%02x", $0) }.joined()
     }

@@ -63,6 +63,7 @@
 		8141C3CCB46DBE1F6A6AAA1A /* Assets.xcassets in Resources */ = {isa = PBXBuildFile; fileRef = 0A89C74F0EA246302F10F942 /* Assets.xcassets */; };
 		840EF5E2122E2D3490407A4E /* ColorSettingsView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 72C97ACC847E4DF3B39889F0 /* ColorSettingsView.swift */; };
 		860FA4D5BECA775D025431C6 /* ClipInspectorView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7851F2E03E080FEACC2B5416 /* ClipInspectorView.swift */; };
+		88DC1B121529742772EC0AD6 /* RawImportTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = C4FA5E592EA1EF7C0D901CCF /* RawImportTests.swift */; };
 		90D9B3671E92787FF2D954B4 /* TimelineSettings.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8367F9EA2AE1B1FF10EC33A6 /* TimelineSettings.swift */; };
 		92559378592C017AEEC38BA0 /* SpaceBarPlayPause.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5E6048C278CD140A1A244362 /* SpaceBarPlayPause.swift */; };
 		92C5602B48DDDD4AA8EE9771 /* VolumeEnvelope.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1B3304544D84AE437A706B92 /* VolumeEnvelope.swift */; };
@@ -201,6 +202,7 @@
 		BA6A047EA5580454964B1DEE /* ProjectDocument.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ProjectDocument.swift; sourceTree = "<group>"; };
 		BDDB1CC6F09B34F4B6E1A247 /* ColorGrade.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ColorGrade.swift; sourceTree = "<group>"; };
 		C474EC37B803A6B8BFB2EA43 /* InspectorPanel.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = InspectorPanel.swift; sourceTree = "<group>"; };
+		C4FA5E592EA1EF7C0D901CCF /* RawImportTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RawImportTests.swift; sourceTree = "<group>"; };
 		C58F60D05AFBF162E727CC00 /* ColorLUT.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ColorLUT.swift; sourceTree = "<group>"; };
 		C6D3E9B971A2BDC954079A54 /* ExportPresetsSettingsView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ExportPresetsSettingsView.swift; sourceTree = "<group>"; };
 		C8F8C4DABD384E22C377732F /* BlockingWorkTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BlockingWorkTests.swift; sourceTree = "<group>"; };
@@ -359,6 +361,7 @@
 				FFAAF2ADB05424F9DB3D414A /* MonitorVolumeTests.swift */,
 				B651D74432C531DB3E5324CA /* NewSourceVideoTests.swift */,
 				D7F3715A04C3D53830734460 /* PreviewQualityTests.swift */,
+				C4FA5E592EA1EF7C0D901CCF /* RawImportTests.swift */,
 				0A5FD17A6E03B6BEAC76E60C /* SharpenControlTests.swift */,
 				6B8C6722F9612990561D8403 /* SpaceBarTests.swift */,
 				8550F421DB4DC1A72E2480DC /* SwiftCutTests.swift */,
@@ -597,6 +600,7 @@
 				A7416B68F8B7E12A2CFE2C6A /* MonitorVolumeTests.swift in Sources */,
 				5BE786EEDC40AEDCE37F5C4F /* NewSourceVideoTests.swift in Sources */,
 				35A53A873A5C28B063223F9D /* PreviewQualityTests.swift in Sources */,
+				88DC1B121529742772EC0AD6 /* RawImportTests.swift in Sources */,
 				47E9C32252AD3E6C17FA5720 /* SharpenControlTests.swift in Sources */,
 				325B9222CEAE651D233D9E46 /* SpaceBarTests.swift in Sources */,
 				52406DC514B8FDF95954FDAE /* SwiftCutTests.swift in Sources */,

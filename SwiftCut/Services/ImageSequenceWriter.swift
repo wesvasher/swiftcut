@@ -1,9 +1,12 @@
 import AVFoundation
 import CoreGraphics
+import CoreImage
 import ImageIO
 
 /// Writes an image sequence (or a still image) as a ProRes video: ProRes 422 HQ, or
-/// ProRes 4444 when the images have transparency, so it keeps it.
+/// ProRes 4444 when the images have transparency, so it keeps it. Camera RAW photos are
+/// developed at full precision (`ImageSequence.RawDevelop`) and written as 12-bit ProRes 4444 XQ,
+/// so the detail recovered from their highlights and shadows isn't lost to 8 bits.
 nonisolated enum ImageSequenceWriter {
     enum WriteError: LocalizedError {
         case missingImages(Int)
@@ -32,7 +35,8 @@ nonisolated enum ImageSequenceWriter {
         guard let first = Source(url: firstURL) else { throw WriteError.unreadable(firstURL.lastPathComponent) }
 
         let size = sequence.outputSize(firstImage: first.size)
-        let hasAlpha = first.hasAlpha
+        let develop = sequence.raw
+        let hasAlpha = develop == nil && first.hasAlpha
         let frameDuration = sequence.frameDuration
 
         // Write next to the final file, then move it into place, so a half-written video never
@@ -43,7 +47,7 @@ nonisolated enum ImageSequenceWriter {
 
         let writer = try AVAssetWriter(outputURL: partial, fileType: .mov)
         let settings: [String: Any] = [
-            AVVideoCodecKey: hasAlpha ? AVVideoCodecType.proRes4444 : AVVideoCodecType.proRes422HQ,
+            AVVideoCodecKey: develop != nil ? Self.proRes4444XQ : hasAlpha ? AVVideoCodecType.proRes4444 : AVVideoCodecType.proRes422HQ,
             AVVideoWidthKey: Int(size.width),
             AVVideoHeightKey: Int(size.height),
             AVVideoColorPropertiesKey: [
@@ -59,7 +63,9 @@ nonisolated enum ImageSequenceWriter {
         input.expectsMediaDataInRealTime = false
         input.mediaTimeScale = max(frameDuration.timescale, 600)
         let adaptor = AVAssetWriterInputPixelBufferAdaptor(assetWriterInput: input, sourcePixelBufferAttributes: [
-            kCVPixelBufferPixelFormatTypeKey as String: kCVPixelFormatType_32BGRA,
+            // 16 bits a channel for RAW, so the 12-bit file gets every level; 8 otherwise.
+            kCVPixelBufferPixelFormatTypeKey as String: develop != nil ? kCVPixelFormatType_64RGBALE : kCVPixelFormatType_32BGRA,
+            kCVPixelBufferIOSurfacePropertiesKey as String: [String: Any](),
             kCVPixelBufferWidthKey as String: Int(size.width),
             kCVPixelBufferHeightKey as String: Int(size.height),
         ])
@@ -71,6 +77,7 @@ nonisolated enum ImageSequenceWriter {
         writer.startSession(atSourceTime: .zero)
 
         let canvas = Canvas(size: size, fit: sequence.fit, opaque: !hasAlpha)
+        let developer = develop.map { RawDeveloper(develop: $0, canvas: canvas) }
         let frameCount = sequence.frameCount
         var still: CVPixelBuffer?
         var reported = -1
@@ -84,12 +91,21 @@ nonisolated enum ImageSequenceWriter {
             if sequence.isStill, let still {
                 buffer = still
             } else {
-                let source = index == 0 ? first : Source(url: urls[index])
-                guard let source else {
+                guard let pool = adaptor.pixelBufferPool else {
                     writer.cancelWriting()
-                    throw WriteError.unreadable(urls[index].lastPathComponent)
+                    throw WriteError.failed(writer.error?.localizedDescription ?? "a frame couldn't be drawn.")
                 }
-                guard let pool = adaptor.pixelBufferPool, let drawn = canvas.draw(source, pool: pool) else {
+                let drawn: CVPixelBuffer?
+                if let developer {
+                    drawn = try developer.draw(urls[index], pool: pool)
+                } else {
+                    guard let source = index == 0 ? first : Source(url: urls[index]) else {
+                        writer.cancelWriting()
+                        throw WriteError.unreadable(urls[index].lastPathComponent)
+                    }
+                    drawn = canvas.draw(source, pool: pool)
+                }
+                guard let drawn else {
                     writer.cancelWriting()
                     throw WriteError.failed(writer.error?.localizedDescription ?? "a frame couldn't be drawn.")
                 }
@@ -125,6 +141,72 @@ nonisolated enum ImageSequenceWriter {
             try FileManager.default.removeItem(at: url)
         }
         try FileManager.default.moveItem(at: partial, to: url)
+    }
+
+    /// Apple ProRes 4444 XQ (12-bit), which the SDK has no named constant for.
+    static let proRes4444XQ = AVVideoCodecType(rawValue: "ap4x")
+
+    /// Develops camera RAW photos with Core Image at full precision: exposure, shadows, and the
+    /// highlights above white rolled off smoothly instead of clipped. Draws into 16-bit frames.
+    private struct RawDeveloper {
+        let develop: ImageSequence.RawDevelop
+        let canvas: Canvas
+        private let context = CIContext(options: [.cacheIntermediates: false])
+        /// Frames are Rec. 709 video, as the rest of the app treats them.
+        private let space = CGColorSpace(name: CGColorSpace.itur_709) ?? CGColorSpaceCreateDeviceRGB()
+
+        init(develop: ImageSequence.RawDevelop, canvas: Canvas) {
+            self.develop = develop
+            self.canvas = canvas
+        }
+
+        /// The photo developed, upright and at full size. Non-RAW files in a RAW sequence are read as they are.
+        func developed(_ url: URL, scale: Double = 1) throws -> CIImage {
+            guard let raw = CIRAWFilter(imageURL: url) else {
+                guard let image = CIImage(contentsOf: url, options: [.applyOrientationProperty: true]) else {
+                    throw WriteError.unreadable(url.lastPathComponent)
+                }
+                return image
+            }
+            raw.scaleFactor = Float(min(1, max(0.01, scale)))
+            raw.exposure = Float(min(ImageSequence.RawDevelop.exposureRange.upperBound,
+                                     max(ImageSequence.RawDevelop.exposureRange.lowerBound, develop.exposure)))
+            raw.boostShadowAmount *= Float(min(ImageSequence.RawDevelop.shadowsRange.upperBound, max(0, develop.shadows)))
+            let recovery = Float(min(1, max(0, develop.highlightRecovery)))
+            if raw.isHighlightRecoverySupported { raw.isHighlightRecoveryEnabled = recovery > 0 }
+            // Detail above white comes out as values over 1, then is rolled off into the picture.
+            // The same roll-off for every frame, so a timelapse doesn't flicker.
+            raw.extendedDynamicRangeAmount = recovery
+            guard var image = raw.outputImage else { throw WriteError.unreadable(url.lastPathComponent) }
+            if recovery > 0 {
+                image = image.applyingFilter("CIToneMapHeadroom", parameters: [
+                    "inputSourceHeadroom": 1 + recovery,
+                    "inputTargetHeadroom": 1,
+                ])
+            }
+            return image
+        }
+
+        /// Develops `url` and draws it into a frame from `pool`, fitted or filled, over black.
+        func draw(_ url: URL, pool: CVPixelBufferPool) throws -> CVPixelBuffer? {
+            // The full size first (cheap: nothing is decoded yet), to decode only as big as needed.
+            let full = try developed(url).extent
+            guard full.width > 0, full.height > 0 else { throw WriteError.unreadable(url.lastPathComponent) }
+            let target = canvas.rect(for: full.size)
+            let scale = min(1, max(target.width / full.width, target.height / full.height))
+            var image = try developed(url, scale: scale)
+            let extent = image.extent
+            image = image.transformed(by: CGAffineTransform(translationX: -extent.minX, y: -extent.minY)
+                .concatenating(CGAffineTransform(scaleX: target.width / extent.width, y: target.height / extent.height))
+                .concatenating(CGAffineTransform(translationX: target.minX, y: target.minY)))
+            let frame = CGRect(origin: .zero, size: canvas.size)
+            image = image.composited(over: CIImage(color: .black).cropped(to: frame)).cropped(to: frame)
+
+            var made: CVPixelBuffer?
+            guard CVPixelBufferPoolCreatePixelBuffer(nil, pool, &made) == kCVReturnSuccess, let buffer = made else { return nil }
+            context.render(image, to: buffer, bounds: frame, colorSpace: space)
+            return buffer
+        }
     }
 
     /// The first image's size (upright) and whether it has transparency, for the inspector.
