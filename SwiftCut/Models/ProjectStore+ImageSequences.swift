@@ -8,11 +8,10 @@ extension ProjectStore {
     /// Handles files dropped on the window: videos are imported right away; for images (or
     /// folders of them) the user is asked whether they're one image sequence or separate images.
     @discardableResult
-    func handleDrop(_ urls: [URL]) -> Bool {
-        let images = askAboutImages(in: urls)
-        let imported = importFiles(urls)
-        if !imported.isEmpty { selection = Set(imported.map { .clip($0.id) }) }
-        return images || !imported.isEmpty
+    func handleDrop(_ urls: [URL], securityScoped: Bool = false) -> Bool {
+        let dropped = importDropped(urls, securityScoped: securityScoped)
+        if !dropped.clips.isEmpty { selection = Set(dropped.clips.map { .clip($0.id) }) }
+        return dropped.asksAboutImages || !dropped.clips.isEmpty || dropped.madeFolders
     }
 
     /// Puts the images and image folders among `urls` up for the drop dialog.
@@ -31,8 +30,14 @@ extension ProjectStore {
     func finishImageImport(asSequence: Bool, order: ImageSequence.Order = .nameAscending, frameRate: Double? = nil) {
         guard let pending = pendingImageImport else { return }
         pendingImageImport = nil
-        let clips = importImages(folders: pending.folders, images: pending.images, asSequence: asSequence,
-                                 order: order, frameRate: frameRate)
+        let sequences = makeSequences(folders: pending.folders, images: pending.images, asSequence: asSequence,
+                                      order: order, frameRate: frameRate, destinations: pending.destinations)
+        // Camera RAW photos go to the Develop RAW dialog first (once the import sheet has gone).
+        if sequences.contains(where: { $0.raw != nil }) {
+            requestRawDevelop(RawDevelopRequest(sequences: sequences, timelineIndex: pending.timelineIndex), afterSheet: true)
+            return
+        }
+        let clips = addSequences(sequences)
         guard !clips.isEmpty else { return }
         if let index = pending.timelineIndex {
             addToTimeline(clips, at: index)
@@ -43,6 +48,8 @@ extension ProjectStore {
 
     func cancelImageImport() {
         pendingImageImport = nil
+        // Folders made for images that weren't imported after all.
+        removeEmptyFolders()
     }
 
     /// File › Import Image Sequence: asks for a folder of images, or images, and makes each
@@ -65,9 +72,14 @@ extension ProjectStore {
             ImageSequence.Order.saved = order
             ImageSequence.savedFrameRate = frameRate
             urls.forEach { _ = $0.startAccessingSecurityScopedResource() }
-            let clips = self.importImages(folders: urls.filter(ImageSequence.isFolder),
-                                          images: urls.filter(ImageSequence.isImage), asSequence: true,
-                                          order: order, frameRate: frameRate)
+            let sequences = self.makeSequences(folders: urls.filter(ImageSequence.isFolder),
+                                               images: urls.filter(ImageSequence.isImage), asSequence: true,
+                                               order: order, frameRate: frameRate)
+            if sequences.contains(where: { $0.raw != nil }) {
+                self.requestRawDevelop(RawDevelopRequest(sequences: sequences), afterSheet: true)
+                return
+            }
+            let clips = self.addSequences(sequences)
             if !clips.isEmpty { self.selection = Set(clips.map { .clip($0.id) }) }
         }
         if let window = NSApp.keyWindow ?? NSApp.mainWindow {
@@ -160,6 +172,63 @@ extension ProjectStore {
         }
     }
 
+    // MARK: Developing RAW
+
+    /// Opens the Develop RAW dialog. Right after another sheet (the import dialog) it waits for
+    /// that one to close, since a window shows one sheet at a time.
+    func requestRawDevelop(_ request: RawDevelopRequest, afterSheet: Bool = false) {
+        guard afterSheet else {
+            rawDevelopRequest = request
+            return
+        }
+        Task {
+            try? await Task.sleep(for: .milliseconds(350))
+            rawDevelopRequest = request
+        }
+    }
+
+    /// Image Sequence › RAW › New Clip from RAW: develops the same photos again into a new clip.
+    func developNewClip(from clip: Clip) {
+        guard let sequence = clip.imageSequence, sequence.raw != nil else { return }
+        requestRawDevelop(RawDevelopRequest(sequences: [sequence], isNewVersion: true))
+    }
+
+    /// The Develop RAW dialog's Create Clip: makes the clips with the chosen settings and adds
+    /// them to the project (and the timeline, when they were dropped there). Returns them.
+    @discardableResult
+    func finishRawDevelop(_ request: RawDevelopRequest, settings: RawDevelopSettings) -> [Clip] {
+        if rawDevelopRequest?.id == request.id { rawDevelopRequest = nil }
+        let names = Set(clips.map(\.name))
+        let sequences = request.sequences.map { original -> ImageSequence in
+            var sequence = original
+            settings.apply(to: &sequence)
+            if request.isNewVersion {
+                // "clicker (Developed)", then "(Developed 2)"…
+                var number = 1
+                var name = "\(original.name) (Developed)"
+                while names.contains(name) {
+                    number += 1
+                    name = "\(original.name) (Developed \(number))"
+                }
+                sequence.name = name
+            }
+            return sequence
+        }
+        let new = addSequences(sequences)
+        guard !new.isEmpty else { return new }
+        if let index = request.timelineIndex {
+            addToTimeline(new, at: index)
+        } else {
+            selection = Set(new.map { .clip($0.id) })
+        }
+        return new
+    }
+
+    func cancelRawDevelop() {
+        rawDevelopRequest = nil
+        removeEmptyFolders()
+    }
+
     // MARK: Saving the video
 
     /// Image Sequence › Save Video As: asks where, then copies the video SwiftCut made from the
@@ -221,6 +290,14 @@ extension ProjectStore {
     @discardableResult
     func importImages(folders: [URL], images: [URL], asSequence: Bool,
                       order: ImageSequence.Order = .nameAscending, frameRate: Double? = nil) -> [Clip] {
+        addSequences(makeSequences(folders: folders, images: images, asSequence: asSequence, order: order, frameRate: frameRate))
+    }
+
+    /// The image sequences for these folders and images (see `importImages`), not added yet.
+    /// `destinations` puts what comes from a folder into that sidebar folder.
+    func makeSequences(folders: [URL], images: [URL], asSequence: Bool,
+                       order: ImageSequence.Order = .nameAscending, frameRate: Double? = nil,
+                       destinations: [URL: UUID] = [:]) -> [ImageSequence] {
         var sequences: [ImageSequence] = []
         if asSequence {
             for folder in folders {
@@ -249,7 +326,24 @@ extension ProjectStore {
         if let frameRate {
             for index in sequences.indices { sequences[index].setFrameRate(frameRate) }
         }
-        let new = sequences.map { Clip(sequence: $0) }
+        return sequences.map { sequence in
+            // Into the sidebar folder of the folder its images came from.
+            var sequence = sequence
+            if let first = sequence.imageURLs.first {
+                sequence.folderID = destinations[first.deletingLastPathComponent().standardizedFileURL]
+            }
+            return sequence
+        }
+    }
+
+    /// Adds source videos made from these sequences (their videos are made in the background).
+    @discardableResult
+    func addSequences(_ sequences: [ImageSequence]) -> [Clip] {
+        let new = sequences.map { sequence in
+            let clip = Clip(sequence: sequence)
+            clip.folderID = sequence.folderID
+            return clip
+        }
         clips += new
         refreshImageSequences()
         return new
@@ -376,5 +470,44 @@ extension ImageSequence {
                 _ = url.startAccessingSecurityScopedResource()
             }
         }
+    }
+}
+
+/// Camera RAW photos waiting in the Develop RAW dialog: from an import, or a new version of a
+/// clip already in the project.
+struct RawDevelopRequest: Identifiable {
+    let id = UUID()
+    /// What will be made: one sequence, or one per still or folder.
+    var sequences: [ImageSequence]
+    /// Where on the timeline to put the new clips, when the photos were dropped there.
+    var timelineIndex: Int? = nil
+    /// Made again from a clip already in the project (named "… (Developed)").
+    var isNewVersion = false
+
+    /// Every photo, in order, for the dialog's filmstrip.
+    var imageURLs: [URL] { sequences.flatMap(\.imageURLs) }
+}
+
+/// What the Develop RAW dialog sets: the development, the format the video is made as, and
+/// its frame size and rate.
+struct RawDevelopSettings: Equatable {
+    var develop = ImageSequence.RawDevelop()
+    var format = ImageSequence.OutputFormat.proRes4444XQ
+    var frameSize: ImageSequence.FrameSize?
+    var frameRate = 24.0
+
+    init(from sequence: ImageSequence) {
+        develop = sequence.raw ?? ImageSequence.RawDevelop()
+        format = sequence.outputFormat ?? .proRes4444XQ
+        frameSize = sequence.frameSize
+        frameRate = sequence.frameRate
+    }
+
+    func apply(to sequence: inout ImageSequence) {
+        if sequence.raw != nil { sequence.raw = develop }
+        sequence.outputFormat = format
+        sequence.frameSize = frameSize
+        sequence.isCustomSize = frameSize.map { size in !ImageSequence.frameSizes.contains { $0.size == size } } ?? false
+        sequence.setFrameRate(frameRate)
     }
 }

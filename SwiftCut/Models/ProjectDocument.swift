@@ -18,6 +18,8 @@ nonisolated struct ProjectFile: Codable, Equatable, Sendable {
     var timeline: [TimelineRecord] = []
     /// The timeline's frame size, frame rate, and fit.
     var timelineSettings = TimelineSettings()
+    /// Folders in Source Videos (from dropped folders).
+    var folders: [MediaFolder] = []
 
     init() {}
 
@@ -32,6 +34,7 @@ nonisolated struct ProjectFile: Codable, Equatable, Sendable {
         clips = try c.decodeIfPresent([ClipRecord].self, forKey: .clips) ?? []
         subclips = try c.decodeIfPresent([SubclipRecord].self, forKey: .subclips) ?? []
         timelineSettings = try c.decodeIfPresent(TimelineSettings.self, forKey: .timelineSettings) ?? TimelineSettings()
+        folders = (try? c.decodeIfPresent([MediaFolder].self, forKey: .folders)) ?? []
         // Version 1 trimmed each timeline item; those trims become subclips.
         let names = Dictionary(clips.map { ($0.id, URL(filePath: $0.path).deletingPathExtension().lastPathComponent) },
                                uniquingKeysWith: { first, _ in first })
@@ -90,6 +93,8 @@ nonisolated struct ProjectFile: Codable, Equatable, Sendable {
         var volume: VolumeEnvelope?
         /// Cinematic Sound.
         var cinematicSound = false
+        /// The sidebar folder it's in.
+        var folderID: UUID?
         /// Scale, position, and background; `nil` when untouched.
         var layout: FrameLayout?
         /// The images and settings, for a source video made from images. `path` is then the
@@ -135,6 +140,7 @@ nonisolated struct ProjectFile: Codable, Equatable, Sendable {
             grade = try c.decodeIfPresent(ColorGrade.self, forKey: .grade) ?? ColorGrade()
             volume = try? c.decodeIfPresent(VolumeEnvelope.self, forKey: .volume)
             cinematicSound = (try? c.decodeIfPresent(Bool.self, forKey: .cinematicSound)) ?? false
+            folderID = try? c.decodeIfPresent(UUID.self, forKey: .folderID)
             layout = try? c.decodeIfPresent(FrameLayout.self, forKey: .layout)
             imageSequence = try? c.decodeIfPresent(ImageSequence.self, forKey: .imageSequence)
         }

@@ -1,3 +1,4 @@
+import AVFoundation
 import CoreMedia
 import CryptoKit
 import Foundation
@@ -45,6 +46,88 @@ nonisolated struct ImageSequence: Codable, Hashable, Sendable {
         var isDefault: Bool { self == RawDevelop() }
     }
 
+    /// What the images are made into, from small compressed files to the highest-quality ProRes.
+    enum OutputFormat: String, Codable, CaseIterable, Identifiable, Sendable {
+        case h264, hevc10, proRes422Proxy, proRes422LT, proRes422, proRes422HQ, proRes4444, proRes4444XQ
+
+        var id: Self { self }
+
+        var title: String {
+            switch self {
+            case .h264: "H.264"
+            case .hevc10: "HEVC (H.265) 10-bit"
+            case .proRes422Proxy: "Apple ProRes 422 Proxy"
+            case .proRes422LT: "Apple ProRes 422 LT"
+            case .proRes422: "Apple ProRes 422"
+            case .proRes422HQ: "Apple ProRes 422 HQ"
+            case .proRes4444: "Apple ProRes 4444"
+            case .proRes4444XQ: "Apple ProRes 4444 XQ"
+            }
+        }
+
+        /// What it's good for, in a few words.
+        var detail: String {
+            switch self {
+            case .h264: "Compressed. Smallest files, but heavy grading can show banding."
+            case .hevc10: "Compressed. Small files that keep more tones than H.264; slower to edit."
+            case .proRes422Proxy: "Lightest ProRes, for rough edits."
+            case .proRes422LT: "Light ProRes; good for most viewing."
+            case .proRes422: "Standard ProRes for editing."
+            case .proRes422HQ: "High-quality ProRes for editing and grading."
+            case .proRes4444: "Very high quality, with full color detail."
+            case .proRes4444XQ: "Highest quality ProRes. Keeps the most RAW detail; largest files."
+            }
+        }
+
+        var bitDepth: Int {
+            switch self {
+            case .h264: 8
+            case .hevc10, .proRes422Proxy, .proRes422LT, .proRes422, .proRes422HQ: 10
+            case .proRes4444, .proRes4444XQ: 12
+            }
+        }
+
+        var isCompressed: Bool { self == .h264 || self == .hevc10 }
+
+        var codecType: AVVideoCodecType {
+            switch self {
+            case .h264: .h264
+            case .hevc10: .hevc
+            case .proRes422Proxy: .proRes422Proxy
+            case .proRes422LT: .proRes422LT
+            case .proRes422: .proRes422
+            case .proRes422HQ: .proRes422HQ
+            case .proRes4444: .proRes4444
+            case .proRes4444XQ: AVVideoCodecType(rawValue: "ap4x")
+            }
+        }
+
+        /// Megabits a second at 1920 × 1080, 29.97 fps (Apple's ProRes targets; typical for the others).
+        var megabitsAt1080p30: Double {
+            switch self {
+            case .h264: 24
+            case .hevc10: 16
+            case .proRes422Proxy: 45
+            case .proRes422LT: 102
+            case .proRes422: 147
+            case .proRes422HQ: 220
+            case .proRes4444: 330
+            case .proRes4444XQ: 500
+            }
+        }
+
+        /// About how big a video this size, rate, and length comes out, in bytes.
+        func estimatedBytes(frameSize: CGSize, fps: Double, seconds: Double) -> Double {
+            let scale = Double(frameSize.width * frameSize.height) / (1920 * 1080) * (fps / 29.97)
+            return megabitsAt1080p30 * 1_000_000 / 8 * scale * seconds
+        }
+
+        /// The bit rate to ask a compressed format for at this size and rate, in bits a second.
+        func bitRate(frameSize: CGSize, fps: Double) -> Int {
+            Int(estimatedBytes(frameSize: frameSize, fps: fps, seconds: 1) * 8)
+        }
+    }
+
     struct FrameSize: Codable, Hashable, Sendable {
         var width: Int
         var height: Int
@@ -73,6 +156,16 @@ nonisolated struct ImageSequence: Codable, Hashable, Sendable {
     var stillDuration = 5.0
     /// RAW development, for camera RAW photos.
     var raw: RawDevelop?
+    /// What the video is made as; `nil` picks automatically (see `format`).
+    var outputFormat: OutputFormat?
+    /// The sidebar folder the clip goes in (from a dropped folder). Not part of the picture.
+    var folderID: UUID?
+
+    /// The format used: as chosen, or ProRes 4444 XQ for RAW, 4444 for images with
+    /// transparency (it keeps it), and 422 HQ otherwise.
+    func format(hasAlpha: Bool) -> OutputFormat {
+        outputFormat ?? (raw != nil ? .proRes4444XQ : hasAlpha ? .proRes4444 : .proRes422HQ)
+    }
 
     init(name: String, imagePaths: [String], access: [Access] = []) {
         self.name = name
@@ -102,6 +195,8 @@ nonisolated struct ImageSequence: Codable, Hashable, Sendable {
         stillDuration = (try? c.decodeIfPresent(Double.self, forKey: .stillDuration)) ?? 5
         // RAW sequences from before RAW development get it now (and their videos are made again).
         raw = (try? c.decodeIfPresent(RawDevelop.self, forKey: .raw)) ?? (Self.isRaw(imagePaths.first) ? RawDevelop() : nil)
+        outputFormat = try? c.decodeIfPresent(OutputFormat.self, forKey: .outputFormat)
+        folderID = try? c.decodeIfPresent(UUID.self, forKey: .folderID)
     }
 
     var imageURLs: [URL] { imagePaths.map { URL(filePath: $0) } }
@@ -198,6 +293,7 @@ nonisolated struct ImageSequence: Codable, Hashable, Sendable {
         key += "|\(frameSize.map(\.title) ?? "match")|\(fit.rawValue)|\(frameDuration.value)/\(frameDuration.timescale)"
         if isStill { key += "|\(frameCount)" }
         if let raw { key += "|raw \(raw.exposure) \(raw.highlightRecovery) \(raw.shadows)" }
+        if let outputFormat { key += "|format \(outputFormat.rawValue)" }
         let digest = SHA256.hash(data: Data(key.utf8))
         return digest.prefix(12).map { String(format: "%02x", $0) }.joined()
     }
@@ -352,6 +448,8 @@ nonisolated struct PendingImageImport: Identifiable, Sendable {
     var images: [URL]
     /// Where on the timeline to put them, when they were dropped there.
     var timelineIndex: Int?
+    /// The sidebar folder each dropped folder's images go into (keys are standardized folder URLs).
+    var destinations: [URL: UUID] = [:]
 
     var imageCount: Int {
         images.count + folders.reduce(0) { $0 + ImageSequence.images(in: $1).count }

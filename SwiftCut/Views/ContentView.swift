@@ -25,11 +25,12 @@ struct ContentView: View {
         }
         .fileImporter(
             isPresented: $store.isImporting,
-            allowedContentTypes: [.audiovisualContent],
+            allowedContentTypes: [.audiovisualContent, .folder],
             allowsMultipleSelection: true
         ) { result in
             if case .success(let urls) = result {
-                store.importAndSelect(urls, securityScoped: true)
+                // Folders come in as sidebar folders, as when dropped.
+                store.handleDrop(urls, securityScoped: true)
             }
         }
         // Files dropped anywhere else in the window (the sidebar, timeline, and drop zone take their own).
@@ -38,6 +39,9 @@ struct ContentView: View {
         }
         .sheet(item: $store.pendingImageImport) { pending in
             ImageImportSheet(pending: pending)
+        }
+        .sheet(item: $store.rawDevelopRequest) { request in
+            RawDeveloperSheet(request: request)
         }
         .frame(minWidth: 900, minHeight: 560)
         .alert("Export Folder Not Found", isPresented: Binding(

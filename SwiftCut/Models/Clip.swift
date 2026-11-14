@@ -38,6 +38,8 @@ final class Clip: Identifiable {
     /// Volume keyframes, drawn on the waveform in the clip viewer. The timeline follows them where
     /// it plays the whole source video; subclips have their own (see `Subclip.volume`).
     var volume = VolumeEnvelope()
+    /// The sidebar folder it's in, or `nil` at the top of Source Videos.
+    var folderID: UUID?
     /// Cinematic Sound (Audio section): evens out the loud and quiet parts. Subclips share it.
     var isCinematicSound = false
     /// Set when this source video is made from images; `url` is then the video SwiftCut made.
@@ -326,6 +328,7 @@ final class Clip: Identifiable {
         r.grade = grade
         r.volume = volume.isEmpty ? nil : volume
         r.cinematicSound = isCinematicSound
+        r.folderID = folderID
         r.layout = layout == FrameLayout() ? nil : layout
         r.imageSequence = imageSequence
         return r
@@ -355,6 +358,7 @@ final class Clip: Identifiable {
         let volume = r.volume ?? VolumeEnvelope()
         if self.volume != volume { self.volume = volume }
         if isCinematicSound != r.cinematicSound { isCinematicSound = r.cinematicSound }
+        if folderID != r.folderID { folderID = r.folderID }
         let layout = r.layout ?? FrameLayout()
         if self.layout != layout { self.layout = layout }
         if imageSequence != r.imageSequence { imageSequence = r.imageSequence }

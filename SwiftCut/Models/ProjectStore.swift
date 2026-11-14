@@ -11,6 +11,8 @@ final class ProjectStore {
     var clips: [Clip] = []
     /// Parts of source videos. Shown under their source in the sidebar.
     var subclips: [Subclip] = []
+    /// Folders in Source Videos, made from dropped folders. Clips say which they're in.
+    var folders: [MediaFolder] = []
     var timeline: [TimelineItem] = []
     /// The timeline's frame size, frame rate, and fit (timeline inspector's Timeline Settings section).
     var timelineSettings = TimelineSettings()
@@ -31,6 +33,8 @@ final class ProjectStore {
     var isImporting = false
     /// Images dropped on the window, while the user chooses Image Sequence or Individual Images.
     var pendingImageImport: PendingImageImport?
+    /// Camera RAW photos waiting in the Develop RAW dialog, before they're made into clips.
+    var rawDevelopRequest: RawDevelopRequest?
     /// Videos being made from images, by clip, with the file each will write.
     @ObservationIgnored var sequenceBuilds: [UUID: (url: URL, task: Task<Void, Never>)] = [:]
     /// How loud each timeline item's part of its file is, by `loudnessKey`.
@@ -143,7 +147,7 @@ final class ProjectStore {
 
     /// Adds supported files to the media list. Returns the clips (new or existing) for those files.
     @discardableResult
-    func importFiles(_ urls: [URL], securityScoped: Bool = false) -> [Clip] {
+    func importFiles(_ urls: [URL], securityScoped: Bool = false, folderID: UUID? = nil) -> [Clip] {
         var result: [Clip] = []
         for url in urls {
             if securityScoped { _ = url.startAccessingSecurityScopedResource() }
@@ -154,6 +158,7 @@ final class ProjectStore {
             }
             let clip = Clip(url: url)
             clip.bookmark = Clip.makeBookmark(for: url)
+            clip.folderID = folderID
             clips.append(clip)
             result.append(clip)
             Task {
@@ -297,6 +302,7 @@ final class ProjectStore {
                                            audio: $0.audio.isDefault ? nil : $0.audio) }
         )
         file.timelineSettings = timelineSettings
+        file.folders = folders
         return file
     }
 
@@ -326,6 +332,7 @@ final class ProjectStore {
         }
         if items != timeline { timeline = items }
         if file.timelineSettings != timelineSettings { timelineSettings = file.timelineSettings }
+        if file.folders != folders { folders = file.folders }
 
         pruneSelection()
         refreshImageSequences()
@@ -505,10 +512,9 @@ final class ProjectStore {
             addToTimeline(dragged.map { .subclip($0) }, at: index)
             return true
         }
-        let images = askAboutImages(in: urls, timelineIndex: index)
-        let clips = importFiles(urls)
-        guard !clips.isEmpty else { return images }
-        addToTimeline(clips, at: index)
+        let dropped = importDropped(urls, timelineIndex: index)
+        guard !dropped.clips.isEmpty else { return dropped.asksAboutImages }
+        addToTimeline(dropped.clips, at: index)
         return true
     }
 
@@ -750,6 +756,11 @@ final class ProjectStore {
                 let mix = await Self.volumeMix(volume, isCinematic: clip.isCinematicSound, asset: playable.asset, sourceStart: 0)
                 exporter.export(asset: playable.asset, videoComposition: playable.videoComposition,
                                 audioMix: mix, timeRange: timeRange, name: name, preset: preset, folder: folder)
+            } else if Self.canExportDirectly(clip, as: preset) {
+                // Straight from the file: nothing to draw, so a 10- or 12-bit source keeps every bit.
+                let asset = AVURLAsset(url: clip.url)
+                let mix = await Self.volumeMix(volume, isCinematic: clip.isCinematicSound, asset: asset, sourceStart: 0)
+                exporter.export(asset: asset, audioMix: mix, timeRange: Self.timeRange(marked), name: name, preset: preset, folder: folder)
             } else {
                 // Goes through a composition so the picture shape is corrected the same way as in the preview.
                 let built = try await CompositionBuilder.build([.init(url: clip.url, start: range.lowerBound, end: range.upperBound)])
@@ -760,6 +771,25 @@ final class ProjectStore {
             }
         } catch {
             exporter.reportFailure(error.localizedDescription, name: name, preset: preset)
+        }
+    }
+
+    /// Whether `clip` can be exported straight from its file, skipping SwiftCut's own drawing
+    /// (which works in 8 bits): nothing to draw (no effects, color, or framing), square pixels
+    /// that aren't turned, and a format that keeps more than 8 bits.
+    static func canExportDirectly(_ clip: Clip, as preset: ExportPreset) -> Bool {
+        guard let video = preset.video, video.codec.bitDepth > 8, clip.hasVideo,
+              !clip.enhanceSettings.isActive, !clip.isRotated else { return false }
+        let squarePixels = clip.pixelAspectRatio.map { $0.width == $0.height } ?? true
+        let noCleanAperture = clip.encodedSize == .zero || clip.encodedSize == clip.displaySize
+        return squarePixels && noCleanAperture
+    }
+
+    /// An export's time range in the source, or `nil` for all of it.
+    static func timeRange(_ range: ClosedRange<Double>?) -> CMTimeRange? {
+        range.map {
+            CMTimeRange(start: CMTime(seconds: $0.lowerBound, preferredTimescale: 90_000),
+                        end: CMTime(seconds: $0.upperBound, preferredTimescale: 90_000))
         }
     }
 

@@ -3,6 +3,7 @@ import SwiftUI
 /// The clip inspector's settings for a source video made from images: frame size, how images
 /// fit it, frame rate, and (for a single image) how long it lasts. Changing one makes the video again.
 struct ImageSequenceSection: View {
+    @Environment(ProjectStore.self) private var store
     @Bindable var clip: Clip
     /// The first image's size, for Match Images.
     @State private var imageSize: CGSize?
@@ -110,7 +111,7 @@ struct ImageSequenceSection: View {
                     InspectorRow("Length", "\(sequence.duration.preciseTimecode) (\(sequence.frameCount.formatted()) frames)")
                 }
                 if let raw = sequence.raw {
-                    rawRows(raw)
+                    rawRows(raw, sequence: sequence)
                 }
                 status(sequence)
             }
@@ -123,76 +124,44 @@ struct ImageSequenceSection: View {
 
     // MARK: RAW
 
-    /// Developing camera RAW photos: exposure, highlight recovery, and shadows.
+    /// How the RAW photos were developed into this clip, and making a new clip with other settings.
+    /// The settings can't change here: the clip is already made from them. The Develop RAW
+    /// dialog makes a new one, with a preview and scopes.
     @ViewBuilder
-    private func rawRows(_ raw: ImageSequence.RawDevelop) -> some View {
+    private func rawRows(_ raw: ImageSequence.RawDevelop, sequence: ImageSequence) -> some View {
         GridRow {
             Divider().gridCellColumns(2)
         }
         GridRow {
-            HStack {
-                Text("RAW")
-                    .font(.caption.weight(.semibold))
-                    .foregroundStyle(.secondary)
-                Spacer()
-                Button("Reset RAW", systemImage: "arrow.counterclockwise") {
-                    clip.imageSequence?.raw = ImageSequence.RawDevelop()
-                }
-                .labelStyle(.iconOnly)
-                .buttonStyle(.borderless)
-                .disabled(raw.isDefault)
-                .help("Put Exposure, Highlights, and Shadows back to their defaults")
-            }
-            .gridCellColumns(2)
+            Text("RAW")
+                .font(.caption.weight(.semibold))
+                .foregroundStyle(.secondary)
+                .gridCellColumns(2)
         }
+        InspectorRow("Exposure", Self.exposureText(raw.exposure))
+        InspectorRow("Highlights", "\(Int((raw.highlightRecovery * 100).rounded()))% recovered")
+        InspectorRow("Shadows", "\(Int((raw.shadows * 100).rounded()))%")
+        InspectorRow("Made As", "\(sequence.format(hasAlpha: false).title), \(sequence.format(hasAlpha: false).bitDepth)-bit")
         GridRow {
-            InspectorLabel("Exposure")
-            NumberStepper(value: rawBinding(\.exposure), range: ImageSequence.RawDevelop.exposureRange, step: 1.0 / 3,
-                          unit: "EV", fractionDigits: 2,
-                          presets: [(-2, "−2 stops"), (-1, "−1 stop"), (0, "Camera (0)"), (1, "+1 stop"), (2, "+2 stops")])
-        }
-        .help("Brighter or darker, in stops. The RAW has room to brighten shadows or darken highlights without losing detail.")
-        GridRow {
-            InspectorLabel("Highlights")
-            NumberStepper(value: percentBinding(\.highlightRecovery), range: 0...100, step: 10, unit: "%",
-                          presets: [(0, "Off (camera look)"), (50, "Some"), (100, "Full")])
-        }
-        .help("Highlight recovery: brings back the detail the camera's look clips to white (bright skies, lights), rolled off smoothly. 0% clips like the camera's own look.")
-        GridRow {
-            InspectorLabel("Shadows")
-            NumberStepper(value: percentBinding(\.shadows), range: 0...200, step: 10, unit: "%",
-                          presets: [(0, "No lift"), (50, "Less"), (100, "Camera (100%)"), (150, "More"), (200, "Most")])
-        }
-        .help("How much the shadows are lifted. 100% is the camera's own amount.")
-        GridRow {
-            Text("Developed from the RAW at full precision and saved as 12-bit Apple ProRes 4444 XQ. At full camera size the video is large; a 4K frame size makes it smaller.")
+            Text("This clip was developed from the original RAW photos with these settings. To try other settings or another format, make a new clip from the same RAW files, with a preview and scopes.")
                 .font(.caption2)
                 .foregroundStyle(.secondary)
                 .fixedSize(horizontal: false, vertical: true)
                 .gridCellColumns(2)
         }
+        GridRow {
+            Button("New Clip from RAW…", systemImage: "camera.aperture") { store.developNewClip(from: clip) }
+                .disabled(clip.sequenceProgress != nil && !clip.isLoaded)
+                .help("Open Develop RAW to make a new clip from these RAW photos: adjust exposure, highlights, and shadows with a preview and scopes, and pick the format. This clip stays as it is.")
+                .gridCellColumns(2)
+                .frame(maxWidth: .infinity, alignment: .leading)
+        }
     }
 
-    private func rawBinding(_ keyPath: WritableKeyPath<ImageSequence.RawDevelop, Double>) -> Binding<Double> {
-        Binding(
-            get: { clip.imageSequence?.raw?[keyPath: keyPath] ?? 0 },
-            set: { value in
-                guard clip.imageSequence?.raw?[keyPath: keyPath] != value else { return }
-                clip.imageSequence?.raw?[keyPath: keyPath] = value
-            }
-        )
-    }
-
-    /// A 0…1 (or 0…2) setting shown as a percentage.
-    private func percentBinding(_ keyPath: WritableKeyPath<ImageSequence.RawDevelop, Double>) -> Binding<Double> {
-        Binding(
-            get: { ((clip.imageSequence?.raw?[keyPath: keyPath] ?? 0) * 100).rounded() },
-            set: { percent in
-                let value = percent / 100
-                guard abs((clip.imageSequence?.raw?[keyPath: keyPath] ?? -1) - value) > 1e-9 else { return }
-                clip.imageSequence?.raw?[keyPath: keyPath] = value
-            }
-        )
+    /// "+0.33 EV", "−1.00 EV", "0 EV".
+    static func exposureText(_ stops: Double) -> String {
+        guard abs(stops) > 0.004 else { return "0 EV" }
+        return (stops > 0 ? "+" : "−") + String(format: "%.2f EV", abs(stops))
     }
 
     @ViewBuilder

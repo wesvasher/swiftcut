@@ -2,6 +2,7 @@ import AVFoundation
 import CoreGraphics
 import CoreImage
 import ImageIO
+import VideoToolbox
 
 /// Writes an image sequence (or a still image) as a ProRes video: ProRes 422 HQ, or
 /// ProRes 4444 when the images have transparency, so it keeps it. Camera RAW photos are
@@ -36,8 +37,13 @@ nonisolated enum ImageSequenceWriter {
 
         let size = sequence.outputSize(firstImage: first.size)
         let develop = sequence.raw
-        let hasAlpha = develop == nil && first.hasAlpha
+        let format = sequence.format(hasAlpha: develop == nil && first.hasAlpha)
+        // Transparency is kept only where the format can hold it.
+        let hasAlpha = develop == nil && first.hasAlpha && (format == .proRes4444 || format == .proRes4444XQ)
+        // RAW is developed into 16-bit frames for formats that keep more than 8 bits.
+        let deepFrames = develop != nil && format.bitDepth > 8
         let frameDuration = sequence.frameDuration
+        let fps = 1 / max(0.0001, frameDuration.seconds)
 
         // Write next to the final file, then move it into place, so a half-written video never
         // sits where the app looks for it.
@@ -46,8 +52,8 @@ nonisolated enum ImageSequenceWriter {
         defer { try? FileManager.default.removeItem(at: partial) }
 
         let writer = try AVAssetWriter(outputURL: partial, fileType: .mov)
-        let settings: [String: Any] = [
-            AVVideoCodecKey: develop != nil ? Self.proRes4444XQ : hasAlpha ? AVVideoCodecType.proRes4444 : AVVideoCodecType.proRes422HQ,
+        var settings: [String: Any] = [
+            AVVideoCodecKey: format.codecType,
             AVVideoWidthKey: Int(size.width),
             AVVideoHeightKey: Int(size.height),
             AVVideoColorPropertiesKey: [
@@ -56,15 +62,24 @@ nonisolated enum ImageSequenceWriter {
                 AVVideoYCbCrMatrixKey: AVVideoYCbCrMatrix_ITU_R_709_2,
             ],
         ]
+        if format.isCompressed {
+            var compression: [String: Any] = [
+                AVVideoAverageBitRateKey: format.bitRate(frameSize: size, fps: fps),
+                AVVideoExpectedSourceFrameRateKey: Int(fps.rounded()),
+            ]
+            if format == .hevc10 { compression[AVVideoProfileLevelKey] = kVTProfileLevel_HEVC_Main10_AutoLevel as String }
+            if format == .h264 { compression[AVVideoProfileLevelKey] = AVVideoProfileLevelH264HighAutoLevel }
+            settings[AVVideoCompressionPropertiesKey] = compression
+        }
         guard writer.canApply(outputSettings: settings, forMediaType: .video) else {
-            throw WriteError.failed("ProRes can't be written at \(Int(size.width)) × \(Int(size.height)).")
+            throw WriteError.failed("\(format.title) can't be written at \(Int(size.width)) × \(Int(size.height)).")
         }
         let input = AVAssetWriterInput(mediaType: .video, outputSettings: settings)
         input.expectsMediaDataInRealTime = false
         input.mediaTimeScale = max(frameDuration.timescale, 600)
         let adaptor = AVAssetWriterInputPixelBufferAdaptor(assetWriterInput: input, sourcePixelBufferAttributes: [
             // 16 bits a channel for RAW, so the 12-bit file gets every level; 8 otherwise.
-            kCVPixelBufferPixelFormatTypeKey as String: develop != nil ? kCVPixelFormatType_64RGBALE : kCVPixelFormatType_32BGRA,
+            kCVPixelBufferPixelFormatTypeKey as String: deepFrames ? kCVPixelFormatType_64RGBALE : kCVPixelFormatType_32BGRA,
             kCVPixelBufferIOSurfacePropertiesKey as String: [String: Any](),
             kCVPixelBufferWidthKey as String: Int(size.width),
             kCVPixelBufferHeightKey as String: Int(size.height),
@@ -143,8 +158,76 @@ nonisolated enum ImageSequenceWriter {
         try FileManager.default.moveItem(at: partial, to: url)
     }
 
-    /// Apple ProRes 4444 XQ (12-bit), which the SDK has no named constant for.
-    static let proRes4444XQ = AVVideoCodecType(rawValue: "ap4x")
+    // MARK: RAW development
+
+    /// A RAW photo developed with `develop`, upright, at `scale` of its full size (smaller decodes
+    /// faster). Non-RAW files are read as they are. The same steps for the video and its preview.
+    static func developed(_ url: URL, develop: ImageSequence.RawDevelop, scale: Double = 1) throws -> CIImage {
+        guard let raw = CIRAWFilter(imageURL: url) else {
+            guard let image = CIImage(contentsOf: url, options: [.applyOrientationProperty: true]) else {
+                throw WriteError.unreadable(url.lastPathComponent)
+            }
+            return image
+        }
+        raw.scaleFactor = Float(min(1, max(0.01, scale)))
+        raw.exposure = Float(min(ImageSequence.RawDevelop.exposureRange.upperBound,
+                                 max(ImageSequence.RawDevelop.exposureRange.lowerBound, develop.exposure)))
+        raw.boostShadowAmount *= Float(min(ImageSequence.RawDevelop.shadowsRange.upperBound, max(0, develop.shadows)))
+        let recovery = Float(min(1, max(0, develop.highlightRecovery)))
+        if raw.isHighlightRecoverySupported { raw.isHighlightRecoveryEnabled = recovery > 0 }
+        // Detail above white comes out as values over 1, then is rolled off into the picture.
+        // The same roll-off for every frame, so a timelapse doesn't flicker.
+        raw.extendedDynamicRangeAmount = recovery
+        guard var image = raw.outputImage else { throw WriteError.unreadable(url.lastPathComponent) }
+        if recovery > 0 {
+            image = image.applyingFilter("CIToneMapHeadroom", parameters: [
+                "inputSourceHeadroom": 1 + recovery,
+                "inputTargetHeadroom": 1,
+            ])
+        }
+        return image
+    }
+
+    /// The Develop RAW dialog's preview of one photo: the picture (no bigger than `longSide`
+    /// pixels on its long side) and its scopes, as the video will show it.
+    static func preview(_ url: URL, develop: ImageSequence.RawDevelop, longSide: CGFloat) throws -> (image: CGImage, scopes: ScopeData?) {
+        let full = try developed(url, develop: develop).extent
+        guard full.width > 0, full.height > 0 else { throw WriteError.unreadable(url.lastPathComponent) }
+        let scale = min(1, longSide / max(full.width, full.height))
+        var image = try developed(url, develop: develop, scale: scale)
+        image = image.transformed(by: CGAffineTransform(translationX: -image.extent.minX, y: -image.extent.minY))
+        let extent = image.extent.integral
+        let space = CGColorSpace(name: CGColorSpace.itur_709) ?? CGColorSpaceCreateDeviceRGB()
+        guard let picture = previewContext.createCGImage(image, from: extent, format: .RGBA8, colorSpace: space) else {
+            throw WriteError.unreadable(url.lastPathComponent)
+        }
+        // The scopes read a small copy, as the sidebar's do.
+        var scopes: ScopeData?
+        let small = ScopeTap.frameSize
+        var buffer: CVPixelBuffer?
+        CVPixelBufferCreate(nil, Int(small.width), Int(small.height), kCVPixelFormatType_32BGRA,
+                            [kCVPixelBufferIOSurfacePropertiesKey: [String: Any]()] as CFDictionary, &buffer)
+        if let buffer {
+            let fitted = image.transformed(by: CGAffineTransform(scaleX: small.width / extent.width, y: small.height / extent.height))
+            previewContext.render(fitted, to: buffer, bounds: CGRect(origin: .zero, size: small), colorSpace: space)
+            scopes = ScopeAnalysis.analyze(buffer)
+        }
+        return (picture, scopes)
+    }
+
+    /// A small picture of a photo for the dialog's filmstrip: the one stored in the file when
+    /// there is one (fast), otherwise made from it.
+    static func thumbnail(_ url: URL, maxPixels: Int = 160) -> CGImage? {
+        guard let source = CGImageSourceCreateWithURL(url as CFURL, nil) else { return nil }
+        return CGImageSourceCreateThumbnailAtIndex(source, 0, [
+            kCGImageSourceCreateThumbnailFromImageIfAbsent: true,
+            kCGImageSourceCreateThumbnailWithTransform: true,
+            kCGImageSourceThumbnailMaxPixelSize: maxPixels,
+        ] as CFDictionary)
+    }
+
+    private static let previewContext = CIContext(options: [.cacheIntermediates: false])
+
 
     /// Develops camera RAW photos with Core Image at full precision: exposure, shadows, and the
     /// highlights above white rolled off smoothly instead of clipped. Draws into 16-bit frames.
@@ -160,31 +243,8 @@ nonisolated enum ImageSequenceWriter {
             self.canvas = canvas
         }
 
-        /// The photo developed, upright and at full size. Non-RAW files in a RAW sequence are read as they are.
         func developed(_ url: URL, scale: Double = 1) throws -> CIImage {
-            guard let raw = CIRAWFilter(imageURL: url) else {
-                guard let image = CIImage(contentsOf: url, options: [.applyOrientationProperty: true]) else {
-                    throw WriteError.unreadable(url.lastPathComponent)
-                }
-                return image
-            }
-            raw.scaleFactor = Float(min(1, max(0.01, scale)))
-            raw.exposure = Float(min(ImageSequence.RawDevelop.exposureRange.upperBound,
-                                     max(ImageSequence.RawDevelop.exposureRange.lowerBound, develop.exposure)))
-            raw.boostShadowAmount *= Float(min(ImageSequence.RawDevelop.shadowsRange.upperBound, max(0, develop.shadows)))
-            let recovery = Float(min(1, max(0, develop.highlightRecovery)))
-            if raw.isHighlightRecoverySupported { raw.isHighlightRecoveryEnabled = recovery > 0 }
-            // Detail above white comes out as values over 1, then is rolled off into the picture.
-            // The same roll-off for every frame, so a timelapse doesn't flicker.
-            raw.extendedDynamicRangeAmount = recovery
-            guard var image = raw.outputImage else { throw WriteError.unreadable(url.lastPathComponent) }
-            if recovery > 0 {
-                image = image.applyingFilter("CIToneMapHeadroom", parameters: [
-                    "inputSourceHeadroom": 1 + recovery,
-                    "inputTargetHeadroom": 1,
-                ])
-            }
-            return image
+            try ImageSequenceWriter.developed(url, develop: develop, scale: scale)
         }
 
         /// Develops `url` and draws it into a frame from `pool`, fitted or filled, over black.

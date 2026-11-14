@@ -85,6 +85,7 @@ nonisolated struct ExportEstimate: Equatable, Sendable {
         case .proRes422: 147
         case .proRes422HQ: 220
         case .proRes4444: 330
+        case .proRes4444XQ: 500
         case .h264, .hevc: 0
         }
         let scale = (size.width * size.height * fps) / (1920 * 1080 * 29.97)

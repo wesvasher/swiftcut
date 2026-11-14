@@ -155,15 +155,32 @@ nonisolated final class Transcoder: @unchecked Sendable {
             composition = Self.copy(composition, frameDuration: ExportPreset.frameDuration(fps: fps))
         }
 
-        let output = AVAssetReaderVideoCompositionOutput(videoTracks: tracks, videoSettings: [
-            kCVPixelBufferPixelFormatTypeKey as String: kCVPixelFormatType_32BGRA,
-        ])
-        output.videoComposition = composition
+        // Nothing to draw (no effects, color, or framing, and no new size or rate): read the
+        // frames straight from the track at 16 bits, for formats that keep more than 8, so a 10-
+        // or 12-bit source keeps its precision. Anything drawn (SwiftCut's own drawing, and even
+        // the system's standard compositor) is 8-bit.
+        let direct = videoComposition == nil && video.codec.bitDepth > 8 && video.frameRate == nil
+            && video.frameSize == .source && tracks.count == 1
+        let output: AVAssetReaderOutput
+        let renderSize: CGSize
+        if direct, let track = tracks.first {
+            output = AVAssetReaderTrackOutput(track: track, outputSettings: [
+                kCVPixelBufferPixelFormatTypeKey as String: kCVPixelFormatType_64RGBALE,
+            ])
+            renderSize = try await track.load(.naturalSize)
+        } else {
+            let composed = AVAssetReaderVideoCompositionOutput(videoTracks: tracks, videoSettings: [
+                kCVPixelBufferPixelFormatTypeKey as String: kCVPixelFormatType_32BGRA,
+            ])
+            composed.videoComposition = composition
+            output = composed
+            renderSize = composition.renderSize
+        }
         output.alwaysCopiesSampleData = false
         guard reader.canAdd(output) else { throw TranscodeError.failed("Couldn't read the video frames.") }
         reader.add(output)
 
-        let size = video.outputSize(for: composition.renderSize)
+        let size = video.outputSize(for: renderSize)
         let fps = composition.frameDuration.seconds > 0 ? 1 / composition.frameDuration.seconds : 30
         var settings: [String: Any] = [
             AVVideoCodecKey: video.codec.avCodec,
@@ -191,6 +208,8 @@ nonisolated final class Transcoder: @unchecked Sendable {
         }
         let input = AVAssetWriterInput(mediaType: .video, outputSettings: settings)
         input.expectsMediaDataInRealTime = false
+        // Frames read straight from the track are stored upright or turned as the source is.
+        if direct, let track = tracks.first { input.transform = try await track.load(.preferredTransform) }
         // Keep exact frame times (e.g. 1001/30000 s for 29.97) instead of rounding to the default time base.
         if let fps = video.frameRate {
             input.mediaTimeScale = max(ExportPreset.frameDuration(fps: fps).timescale, 600)

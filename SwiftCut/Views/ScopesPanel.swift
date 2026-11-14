@@ -91,7 +91,7 @@ private struct ScopePanel<Content: View>: View {
 }
 
 /// How much of the picture is clipped, in the shadows and highlights; red past a sliver.
-private struct ClippingReadout: View {
+struct ClippingReadout: View {
     let data: ScopeData?
 
     var body: some View {
@@ -205,13 +205,34 @@ struct HistogramView: View {
 /// top and 0% (crushed shadows) across the bottom.
 struct ParadeView: View {
     let data: ScopeData?
+
+    var body: some View {
+        LevelsScopeView(image: data?.parade, data: data).accessibilityLabel("RGB Parade")
+    }
+}
+
+/// The video waveform scope: the picture's brightness across its width, with the same lines as
+/// the parade. (Not the audio `WaveformView`.)
+struct LumaWaveformView: View {
+    let data: ScopeData?
+
+    var body: some View {
+        LevelsScopeView(image: data?.waveform, data: data).accessibilityLabel("Waveform")
+    }
+}
+
+/// A scope of levels across the picture (the parade or waveform), with quarter lines and the
+/// clipping lines: 100% (blown highlights) across the top and 0% (crushed shadows) across the bottom.
+private struct LevelsScopeView: View {
+    let image: CGImage?
+    let data: ScopeData?
     /// Room above 100% and below 0%, so the clipping lines and anything on them show.
     static let inset: CGFloat = 8
 
     var body: some View {
         ZStack {
-            if let parade = data?.parade {
-                Image(decorative: parade, scale: 1)
+            if let image {
+                Image(decorative: image, scale: 1)
                     .resizable()
                     .interpolation(.medium)
                     .padding(.vertical, Self.inset)
@@ -236,7 +257,6 @@ struct ParadeView: View {
             .padding(.horizontal, 3)
             .padding(.vertical, 1)
         }
-        .accessibilityLabel("RGB Parade")
     }
 
     private static func line(_ context: GraphicsContext, y: CGFloat, size: CGSize, color: Color, strong: Bool) {

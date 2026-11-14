@@ -18,23 +18,12 @@ struct SidebarView: View {
             }
 
             Section("Source Videos") {
-                ForEach(store.clips) { clip in
-                    let subclips = store.subclips(of: clip.id)
-                    if subclips.isEmpty {
-                        sourceRow(clip)
-                    } else {
-                        DisclosureGroup(isExpanded: expanded(clip.id)) {
-                            ForEach(subclips) { subclip in
-                                SubclipRow(subclip: subclip, clip: clip)
-                                    .tag(SidebarItem.subclip(subclip.id))
-                                    .draggable(subclip.dragURL) {
-                                        SubclipRow(subclip: subclip, clip: clip).padding(6).frame(width: 240)
-                                    }
-                            }
-                        } label: {
-                            sourceRow(clip)
-                        }
-                    }
+                // Folders (from dropped folders) first, then the clips that aren't in one.
+                ForEach(store.folders(in: nil)) { folder in
+                    folderRow(folder)
+                }
+                ForEach(store.clips(inFolder: nil)) { clip in
+                    clipEntry(clip)
                 }
             }
         }
@@ -75,6 +64,71 @@ struct SidebarView: View {
                     .help("Import videos (⌘O)")
             }
         }
+    }
+
+    /// A source video, with its subclips under it when it has any.
+    @ViewBuilder
+    private func clipEntry(_ clip: Clip) -> some View {
+        let subclips = store.subclips(of: clip.id)
+        if subclips.isEmpty {
+            sourceRow(clip)
+        } else {
+            DisclosureGroup(isExpanded: expanded(clip.id)) {
+                ForEach(subclips) { subclip in
+                    SubclipRow(subclip: subclip, clip: clip)
+                        .tag(SidebarItem.subclip(subclip.id))
+                        .draggable(subclip.dragURL) {
+                            SubclipRow(subclip: subclip, clip: clip).padding(6).frame(width: 240)
+                        }
+                }
+            } label: {
+                sourceRow(clip)
+            }
+        }
+    }
+
+    /// A folder from a dropped folder: its folders, then its clips. (Type-erased, as it holds itself.)
+    private func folderRow(_ folder: MediaFolder) -> AnyView {
+        AnyView(
+            DisclosureGroup(isExpanded: expanded(folder.id)) {
+                ForEach(store.folders(in: folder.id)) { child in
+                    folderRow(child)
+                }
+                ForEach(store.clips(inFolder: folder.id)) { clip in
+                    clipEntry(clip)
+                }
+            } label: {
+                Label(folder.name, systemImage: "folder.fill")
+                    .lineLimit(1)
+                    .truncationMode(.middle)
+                    .badge(store.allClips(inFolder: folder.id).count)
+                    .help(folder.path.map { "From \($0.abbreviatingWithTilde)" } ?? folder.name)
+                    .contextMenu { folderMenu(folder) }
+            }
+        )
+    }
+
+    @ViewBuilder
+    private func folderMenu(_ folder: MediaFolder) -> some View {
+        let clips = store.allClips(inFolder: folder.id)
+        Button("Add to Timeline", systemImage: "plus.rectangle.on.rectangle") {
+            store.addToTimeline(clips)
+        }
+        .disabled(clips.isEmpty)
+        Button("Select Clips", systemImage: "checklist") {
+            store.selection = Set(clips.map { .clip($0.id) })
+        }
+        .disabled(clips.isEmpty)
+        if let path = folder.path {
+            Button("Show in Finder", systemImage: "folder") {
+                NSWorkspace.shared.activateFileViewerSelecting([URL(filePath: path)])
+            }
+        }
+        Divider()
+        Button("Remove Folder from Project", systemImage: "trash", role: .destructive) {
+            store.removeFolder(folder.id)
+        }
+        .help("Removes the folder and its clips from the project. The files on disk aren't touched. You can undo this with Edit › Undo.")
     }
 
     private func sourceRow(_ clip: Clip) -> some View {

@@ -10,6 +10,8 @@ nonisolated struct ScopeData: Sendable {
     /// The RGB parade: red, green, and blue side by side, each column of the picture with its
     /// levels from bottom (0) to top (255), brighter where more pixels sit.
     var parade: CGImage?
+    /// The waveform: brightness for each column of the picture, bottom (black) to top (white).
+    var waveform: CGImage? = nil
     /// How much of the picture is clipped: any channel at full black (shadows) or full white
     /// (highlights), 0…1.
     var clippedShadows = 0.0
@@ -42,6 +44,7 @@ nonisolated enum ScopeAnalysis {
         // [channel][column][level]
         var parade = [Int](repeating: 0, count: 3 * width * levels)
         var shadows = 0, highlights = 0
+        var luma = [Int](repeating: 0, count: width * levels)
 
         for y in 0..<height {
             let row = base + y * rowBytes
@@ -54,7 +57,9 @@ nonisolated enum ScopeAnalysis {
                 bins[1][g] += 1
                 bins[2][b] += 1
                 // Rec. 709 brightness, on the gamma-encoded values (as video scopes show it).
-                bins[3][(2126 * r + 7152 * g + 722 * b + 5000) / 10000] += 1
+                let y = (2126 * r + 7152 * g + 722 * b + 5000) / 10000
+                bins[3][y] += 1
+                luma[x * levels + y * levels / 256] += 1
                 parade[(0 * width + x) * levels + r * levels / 256] += 1
                 parade[(1 * width + x) * levels + g * levels / 256] += 1
                 parade[(2 * width + x) * levels + b * levels / 256] += 1
@@ -73,18 +78,24 @@ nonisolated enum ScopeAnalysis {
         }
         let total = Double(width * height)
         return ScopeData(histogram: histogram, parade: paradeImage(parade, width: width, height: height),
+                         waveform: levelsImage(luma, panels: [(0.75, 1, 0.8)], width: width, height: height),
                          clippedShadows: Double(shadows) / total, clippedHighlights: Double(highlights) / total)
     }
 
     /// Draws the parade: each channel in its own color, a gap between them.
     static func paradeImage(_ counts: [Int], width: Int, height: Int) -> CGImage? {
-        let levels = paradeLevels, gap = max(2, width / 40)
-        let imageWidth = width * 3 + gap * 2
+        levelsImage(counts, panels: [(1, 0.25, 0.25), (0.3, 1, 0.35), (0.35, 0.55, 1)], width: width, height: height)
+    }
+
+    /// Draws level counts as panels side by side (one for the waveform, three for the parade),
+    /// each column's levels from bottom to top, brighter where more pixels sit.
+    static func levelsImage(_ counts: [Int], panels colors: [(Double, Double, Double)], width: Int, height: Int) -> CGImage? {
+        let levels = paradeLevels, gap = colors.count > 1 ? max(2, width / 40) : 0
+        let imageWidth = width * colors.count + gap * (colors.count - 1)
         var pixels = [UInt8](repeating: 0, count: imageWidth * levels * 4)
-        let colors: [(Double, Double, Double)] = [(1, 0.25, 0.25), (0.3, 1, 0.35), (0.35, 0.55, 1)]
         // Brightness follows the count on a log scale, so a few pixels still show.
         let full = log(1 + Double(max(1, height)) / 3)
-        for channel in 0..<3 {
+        for channel in colors.indices {
             let (red, green, blue) = colors[channel]
             for x in 0..<width {
                 for level in 0..<levels {
@@ -124,7 +135,7 @@ final class ScopeTap {
     @ObservationIgnored private var askedForFrame = false
 
     /// The frames are scaled to this size first; scopes don't need more.
-    static let frameSize = CGSize(width: 320, height: 180)
+    nonisolated static let frameSize = CGSize(width: 320, height: 180)
 
     func follow(_ player: AVPlayer?) {
         guard player !== self.player else { return }

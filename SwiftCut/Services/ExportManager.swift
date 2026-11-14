@@ -76,6 +76,7 @@ final class ExportManager {
         static let folderPath = "exportFolderPath"
         static let reveal = "revealWhenFinished"
         static let presets = "exportPresets"
+        static let addedBuiltIns = "addedBuiltInPresets"
         static let grantedFolders = "grantedFolders"
     }
 
@@ -95,10 +96,17 @@ final class ExportManager {
 
         if let data = defaults.data(forKey: Key.presets),
            let saved = try? JSONDecoder().decode([ExportPreset].self, from: data) {
-            presets = saved
+            // Built-in presets that came out since the list was saved join it once.
+            let added = Set(defaults.stringArray(forKey: Key.addedBuiltIns) ?? [])
+            var list = saved
+            for id in ExportPreset.addedLater where !added.contains(id.uuidString) && !list.contains(where: { $0.id == id }) {
+                if let preset = ExportPreset.defaults.first(where: { $0.id == id }) { list.append(preset) }
+            }
+            presets = list
         } else {
             presets = ExportPreset.defaults
         }
+        defaults.set(ExportPreset.addedLater.map(\.uuidString), forKey: Key.addedBuiltIns)
 
         var path = defaults.string(forKey: Key.folderPath)
         var folder: URL?

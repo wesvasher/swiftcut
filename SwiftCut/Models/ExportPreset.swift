@@ -70,7 +70,7 @@ nonisolated struct ExportPreset: Codable, Identifiable, Hashable, Sendable {
     // MARK: Video
 
     enum VideoCodec: String, Codable, CaseIterable, Identifiable, Sendable {
-        case h264, hevc, proRes422Proxy, proRes422LT, proRes422, proRes422HQ, proRes4444
+        case h264, hevc, proRes422Proxy, proRes422LT, proRes422, proRes422HQ, proRes4444, proRes4444XQ
 
         var id: String { rawValue }
 
@@ -83,6 +83,7 @@ nonisolated struct ExportPreset: Codable, Identifiable, Hashable, Sendable {
             case .proRes422: "Apple ProRes 422"
             case .proRes422HQ: "Apple ProRes 422 HQ"
             case .proRes4444: "Apple ProRes 4444"
+            case .proRes4444XQ: "Apple ProRes 4444 XQ"
             }
         }
 
@@ -95,6 +96,7 @@ nonisolated struct ExportPreset: Codable, Identifiable, Hashable, Sendable {
             case .proRes422: "ProRes 422"
             case .proRes422HQ: "ProRes HQ"
             case .proRes4444: "ProRes 4444"
+            case .proRes4444XQ: "ProRes 4444 XQ"
             }
         }
 
@@ -107,6 +109,18 @@ nonisolated struct ExportPreset: Codable, Identifiable, Hashable, Sendable {
             case .proRes422: .proRes422
             case .proRes422HQ: .proRes422HQ
             case .proRes4444: .proRes4444
+            // The SDK has no named constant for 4444 XQ.
+            case .proRes4444XQ: AVVideoCodecType(rawValue: "ap4x")
+            }
+        }
+
+        /// Bits per channel the format keeps. Above 8, exports that don't change the picture
+        /// read it at 16 bits, so a 10- or 12-bit source keeps its precision.
+        var bitDepth: Int {
+            switch self {
+            case .h264, .hevc: 8
+            case .proRes422Proxy, .proRes422LT, .proRes422, .proRes422HQ: 10
+            case .proRes4444, .proRes4444XQ: 12
             }
         }
 
@@ -330,6 +344,12 @@ nonisolated struct ExportPreset: Codable, Identifiable, Hashable, Sendable {
 
     // MARK: Built-in presets
 
+    static let proRes4444XQID = UUID(uuidString: "4A9E3B52-1C7D-4F0E-9B6A-2D8C5E7F1A03")!
+
+    /// Built-in presets added after the first version, so saved preset lists get them once
+    /// (a preset deleted after that stays deleted).
+    static let addedLater: [UUID] = [proRes4444XQID]
+
     static let defaults: [ExportPreset] = [
         ExportPreset(
             id: UUID(uuidString: "29D8082C-A410-41C2-ABE9-58992A6BA286")!,
@@ -345,6 +365,11 @@ nonisolated struct ExportPreset: Codable, Identifiable, Hashable, Sendable {
             id: UUID(uuidString: "5767DE81-4E51-449E-BF92-2D0DD7FF333C")!,
             name: "ProRes 422", fileSuffix: "ProRes", container: .mov,
             video: Video(codec: .proRes422), audio: Audio(codec: .pcm, bitDepth: 16), optimizeForNetwork: false
+        ),
+        ExportPreset(
+            id: proRes4444XQID,
+            name: "ProRes 4444 XQ (12-bit)", fileSuffix: "ProRes 4444 XQ", container: .mov,
+            video: Video(codec: .proRes4444XQ), audio: Audio(codec: .pcm, bitDepth: 24), optimizeForNetwork: false
         ),
         ExportPreset(
             id: UUID(uuidString: "5D6C177E-A57E-477E-83F2-F2A9A73C54CB")!,

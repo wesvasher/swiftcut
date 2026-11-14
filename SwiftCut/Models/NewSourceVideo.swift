@@ -117,6 +117,10 @@ extension ProjectStore {
                     let playable = try await Enhancer.makePlayable(url: clip.url, settings: settings)
                     job = exporter.export(asset: playable.asset, videoComposition: playable.videoComposition,
                                           timeRange: timeRange, name: name, preset: preset, folder: folder)
+                } else if Self.canExportDirectly(clip, as: preset) {
+                    // Straight from the file: nothing to draw, so a 10- or 12-bit source keeps every bit.
+                    job = exporter.export(asset: AVURLAsset(url: clip.url), timeRange: timeRange,
+                                          name: name, preset: preset, folder: folder)
                 } else {
                     // Through a composition, so the picture shape is corrected as in the preview.
                     let range = range ?? 0...clip.duration
