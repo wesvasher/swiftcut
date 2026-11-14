@@ -160,6 +160,60 @@ extension ProjectStore {
         }
     }
 
+    // MARK: Saving the video
+
+    /// Image Sequence › Save Video As: asks where, then copies the video SwiftCut made from the
+    /// images, exactly as it is (12-bit ProRes 4444 XQ for RAW photos). Effects, color, and
+    /// marks aren't in it; New Source Video bakes those in. Shows the copy in Finder.
+    func saveSequenceVideo(_ clip: Clip) {
+        guard clip.imageSequence != nil, clip.isLoaded,
+              FileManager.default.fileExists(atPath: clip.url.path(percentEncoded: false)) else { return }
+        let panel = NSSavePanel()
+        panel.nameFieldStringValue = Self.sequenceVideoName(clip)
+        panel.allowedContentTypes = [.quickTimeMovie]
+        panel.canCreateDirectories = true
+        panel.message = "Save the \(clip.videoCodec ?? "ProRes") video made from “\(clip.name)”, exactly as it is."
+        panel.prompt = "Save"
+        let source = clip.url
+        let finish = { (response: NSApplication.ModalResponse) in
+            guard response == .OK, let destination = panel.url else { return }
+            Task {
+                do {
+                    try await Task.detached(priority: .userInitiated) {
+                        try Self.copySequenceVideo(from: source, to: destination)
+                    }.value
+                    NSWorkspace.shared.activateFileViewerSelecting([destination])
+                } catch {
+                    let alert = NSAlert(error: error)
+                    alert.messageText = "Couldn't save the video"
+                    alert.runModal()
+                }
+            }
+        }
+        if let window = NSApp.keyWindow ?? NSApp.mainWindow {
+            panel.beginSheetModal(for: window, completionHandler: finish)
+        } else {
+            finish(panel.runModal())
+        }
+    }
+
+    /// "Clicker (ProRes 4444 XQ).mov".
+    static func sequenceVideoName(_ clip: Clip) -> String {
+        let codec = clip.videoCodec.map { $0.replacingOccurrences(of: "Apple ", with: "") }
+        return codec.map { "\(clip.name) (\($0)).mov" } ?? "\(clip.name).mov"
+    }
+
+    /// Copies the video to `destination`, replacing what's there (the save panel already asked).
+    /// On the same disk this is a clone: instant, and no extra space until one is changed.
+    nonisolated static func copySequenceVideo(from source: URL, to destination: URL) throws {
+        let manager = FileManager.default
+        guard source.standardizedFileURL != destination.standardizedFileURL else { return }
+        if manager.fileExists(atPath: destination.path(percentEncoded: false)) {
+            try manager.removeItem(at: destination)
+        }
+        try manager.copyItem(at: source, to: destination)
+    }
+
     // MARK: Importing
 
     /// Adds source videos made from images. As a sequence, each folder becomes one video and

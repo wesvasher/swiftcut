@@ -829,6 +829,25 @@ final class ProjectStore {
         fullScreenSource?.present()
     }
 
+    // MARK: Scopes
+
+    /// The player the left sidebar's scopes (Histogram, RGB Parade) follow: the viewer on screen.
+    struct ScopeSource {
+        let owner: UUID
+        let player: AVPlayer
+    }
+
+    private(set) var scopeSource: ScopeSource?
+
+    func setScopeSource(_ source: ScopeSource) {
+        if scopeSource?.owner != source.owner || scopeSource?.player !== source.player { scopeSource = source }
+    }
+
+    /// Clears the source only if `owner` set it (the next view may already have set its own).
+    func clearScopeSource(owner: UUID) {
+        if scopeSource?.owner == owner { scopeSource = nil }
+    }
+
     // MARK: Where exports go
 
     /// The saved project file, or `nil` if it hasn't been saved yet.

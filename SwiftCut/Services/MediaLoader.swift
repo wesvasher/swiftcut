@@ -44,6 +44,12 @@ enum MediaLoader {
                     clip.pixelAspectRatio = pixelAspectRatio(format)
                     clip.colorSpace = colorSpaceName(format)
                     clip.hasAlpha = hasAlpha(format)
+                    let color = colorDetails(format)
+                    clip.colorPrimaries = color.primaries
+                    clip.transferFunction = color.transfer
+                    clip.colorMatrix = color.matrix
+                    clip.bitDepth = color.bitDepth
+                    clip.isFullRange = color.isFullRange
                 }
                 clip.videoBitRate = try? await track.load(.estimatedDataRate)
             } else {
@@ -96,6 +102,67 @@ enum MediaLoader {
         let bytes = [24, 16, 8, 0].map { UInt8((code >> $0) & 0xFF) }
         let fourCC = String(bytes: bytes, encoding: .macOSRoman) ?? "?"
         return names[fourCC] ?? fourCC.trimmingCharacters(in: .whitespaces).uppercased()
+    }
+
+    /// The color details a video file gives: primaries, transfer (gamma) curve, YCbCr matrix,
+    /// bits per channel, and range. Each is `nil` when the file doesn't say.
+    static func colorDetails(_ format: CMFormatDescription)
+        -> (primaries: String?, transfer: String?, matrix: String?, bitDepth: Int?, isFullRange: Bool?) {
+        func ext(_ key: CFString) -> String? { CMFormatDescriptionGetExtension(format, extensionKey: key) as? String }
+
+        let primaries = ext(kCMFormatDescriptionExtension_ColorPrimaries).map { value in
+            [
+                kCMFormatDescriptionColorPrimaries_ITU_R_709_2 as String: "Rec. 709",
+                kCMFormatDescriptionColorPrimaries_SMPTE_C as String: "SMPTE-C (NTSC)",
+                kCMFormatDescriptionColorPrimaries_EBU_3213 as String: "EBU 3213 (PAL)",
+                kCMFormatDescriptionColorPrimaries_ITU_R_2020 as String: "Rec. 2020",
+                kCMFormatDescriptionColorPrimaries_DCI_P3 as String: "DCI-P3",
+                kCMFormatDescriptionColorPrimaries_P3_D65 as String: "Display P3",
+            ][value] ?? value
+        }
+        var transfer = ext(kCMFormatDescriptionExtension_TransferFunction).map { value in
+            [
+                kCMFormatDescriptionTransferFunction_ITU_R_709_2 as String: "Rec. 709",
+                kCMFormatDescriptionTransferFunction_ITU_R_2100_HLG as String: "HLG (HDR)",
+                kCMFormatDescriptionTransferFunction_SMPTE_ST_2084_PQ as String: "PQ (HDR)",
+                kCMFormatDescriptionTransferFunction_sRGB as String: "sRGB",
+                kCMFormatDescriptionTransferFunction_Linear as String: "Linear",
+                kCMFormatDescriptionTransferFunction_SMPTE_240M_1995 as String: "SMPTE 240M",
+                kCMFormatDescriptionTransferFunction_UseGamma as String: "Gamma",
+            ][value] ?? value
+        }
+        // Log footage says so separately.
+        if let log = logFormat(format) { transfer = log }
+        let matrix = ext(kCMFormatDescriptionExtension_YCbCrMatrix).map { value in
+            [
+                kCMFormatDescriptionYCbCrMatrix_ITU_R_709_2 as String: "Rec. 709",
+                kCMFormatDescriptionYCbCrMatrix_ITU_R_601_4 as String: "Rec. 601",
+                kCMFormatDescriptionYCbCrMatrix_ITU_R_2020 as String: "Rec. 2020",
+                kCMFormatDescriptionYCbCrMatrix_SMPTE_240M_1995 as String: "SMPTE 240M",
+            ][value] ?? value
+        }
+        let fullRange = CMFormatDescriptionGetExtension(format, extensionKey: kCMFormatDescriptionExtension_FullRangeVideo) as? Bool
+        return (primaries, transfer, matrix, bitDepth(format), fullRange)
+    }
+
+    /// Bits per color channel. ProRes is what its flavor holds (422: 10, 4444: 12), since its
+    /// encoder's tag doesn't say; other codecs as the file says, or what they always use.
+    static func bitDepth(_ format: CMFormatDescription) -> Int? {
+        switch CMFormatDescriptionGetMediaSubType(format) {
+        case kCMVideoCodecType_AppleProRes422Proxy, kCMVideoCodecType_AppleProRes422LT,
+             kCMVideoCodecType_AppleProRes422, kCMVideoCodecType_AppleProRes422HQ: return 10
+        case kCMVideoCodecType_AppleProRes4444, kCMVideoCodecType_AppleProRes4444XQ: return 12
+        default: break
+        }
+        if let bits = (CMFormatDescriptionGetExtension(format, extensionKey: kCMFormatDescriptionExtension_BitsPerComponent) as? NSNumber)?.intValue,
+           bits > 0 {
+            return bits
+        }
+        switch CMFormatDescriptionGetMediaSubType(format) {
+        case kCMVideoCodecType_DVCNTSC, kCMVideoCodecType_DVCPAL, kCMVideoCodecType_JPEG,
+             kCMVideoCodecType_MPEG2Video, kCMVideoCodecType_MPEG4Video, kCMVideoCodecType_H264: return 8
+        default: return nil
+        }
     }
 
     /// Whether the video keeps transparency: 32 bits a pixel (an alpha channel), as ProRes 4444

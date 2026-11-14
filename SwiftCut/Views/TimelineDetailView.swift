@@ -114,8 +114,10 @@ private struct TimelinePreview: View {
         .onChange(of: store.timeline.isEmpty, initial: true) { _, isEmpty in
             if isEmpty {
                 store.clearFullScreenSource(owner: sourceID)
+                store.clearScopeSource(owner: sourceID)
             } else {
                 let player = player
+                store.setScopeSource(.init(owner: sourceID, player: player))
                 store.setFullScreenSource(.init(owner: sourceID) {
                     FullScreenPlayer.present(player: player, title: "Timeline") {
                         // Start over if it's at the end.
@@ -133,6 +135,7 @@ private struct TimelinePreview: View {
         .onDisappear {
             player.pause()
             store.clearFullScreenSource(owner: sourceID)
+            store.clearScopeSource(owner: sourceID)
         }
     }
 

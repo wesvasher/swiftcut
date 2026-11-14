@@ -75,6 +75,7 @@
 		9FB0DB049DC2E607A70411CC /* SettingsView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7F10D6BDDE728E696D9AF2E1 /* SettingsView.swift */; };
 		A35C40720EA8AA791E838AD0 /* StripNavigator.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8AADC683ABCA53643B634D68 /* StripNavigator.swift */; };
 		A7416B68F8B7E12A2CFE2C6A /* MonitorVolumeTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = FFAAF2ADB05424F9DB3D414A /* MonitorVolumeTests.swift */; };
+		A90F394154507E09067A11EF /* ScopesTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = B080E6144DD620A2D2A9B0E4 /* ScopesTests.swift */; };
 		AACC4E9C4C159F390C4C2C5E /* SwiftCutApp.swift in Sources */ = {isa = PBXBuildFile; fileRef = E82FCA028605DE85A16928C0 /* SwiftCutApp.swift */; };
 		AAD22BF20E4E707579CAF6D5 /* FrameCopyTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7D8AB2074771634D90A2759D /* FrameCopyTests.swift */; };
 		AC840E04EF2CAD0252DE729F /* ClipPlayerController.swift in Sources */ = {isa = PBXBuildFile; fileRef = F2ED09D43AB6D9D78E9ED729 /* ClipPlayerController.swift */; };
@@ -90,12 +91,14 @@
 		D1396839C175FD2C1FD571A8 /* Help in Resources */ = {isa = PBXBuildFile; fileRef = 6FB1AAAF26CA5BCD2A9721D5 /* Help */; };
 		D19D0486DB084A9697D4F59E /* ProjectDocument.swift in Sources */ = {isa = PBXBuildFile; fileRef = BA6A047EA5580454964B1DEE /* ProjectDocument.swift */; };
 		D2AB0A98132A3CAFB7C9272F /* NewSourceSheet.swift in Sources */ = {isa = PBXBuildFile; fileRef = 092144C1F403DD724F9702DF /* NewSourceSheet.swift */; };
+		D6532EDE91E9F5EC0ECBDBCD /* Scopes.swift in Sources */ = {isa = PBXBuildFile; fileRef = 2AD887DFA085EA57FC9A5570 /* Scopes.swift */; };
 		D9B8C2D02C3A6D75959D9489 /* LoudnessMeter.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7E0C080F9DA10F9A5D82BE49 /* LoudnessMeter.swift */; };
 		DA8B3D5BE33CD75D307B6F71 /* EffectsPresets.swift in Sources */ = {isa = PBXBuildFile; fileRef = EE7AD13989918B8794AEB6C4 /* EffectsPresets.swift */; };
 		DAD0379BAF3EEA6597A063D5 /* BackgroundTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0FED4717C1F329F57B947F6E /* BackgroundTests.swift */; };
 		DB3817FBCBAA03F33DA45156 /* ColorGrade.swift in Sources */ = {isa = PBXBuildFile; fileRef = BDDB1CC6F09B34F4B6E1A247 /* ColorGrade.swift */; };
 		E16A7C36AF23AE4C32323885 /* HelpArticle.swift in Sources */ = {isa = PBXBuildFile; fileRef = 337CBB424B3791313F4ABF4C /* HelpArticle.swift */; };
 		E27378EE0AB57CCDE29F2156 /* TimelineInspectorView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8165EE9AAAE6C156CFA2C4AF /* TimelineInspectorView.swift */; };
+		E2C334F9AD211E7E0F05E89D /* ScopesPanel.swift in Sources */ = {isa = PBXBuildFile; fileRef = B5FFCE417F06271F4BEC26A2 /* ScopesPanel.swift */; };
 		E84B7E964A62AA2FD14E7E4A /* FrameLayout.swift in Sources */ = {isa = PBXBuildFile; fileRef = 12C7CE7EC41C1D9D4F44F4D5 /* FrameLayout.swift */; };
 		E9C9745D4DC766ABAFFC3D81 /* VideoToolbar.swift in Sources */ = {isa = PBXBuildFile; fileRef = 3F71533BBFB1522027B95BBE /* VideoToolbar.swift */; };
 		EB2D76BE523961B5E94C282E /* HelpTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 195CA63D6F8C395AB1C7E384 /* HelpTests.swift */; };
@@ -138,6 +141,7 @@
 		1AF55AE9F9B242FA2BCDBFA9 /* SidebarView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SidebarView.swift; sourceTree = "<group>"; };
 		1B3304544D84AE437A706B92 /* VolumeEnvelope.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = VolumeEnvelope.swift; sourceTree = "<group>"; };
 		25E508091518B2278CC00981 /* SuperResolutionModel.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SuperResolutionModel.swift; sourceTree = "<group>"; };
+		2AD887DFA085EA57FC9A5570 /* Scopes.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Scopes.swift; sourceTree = "<group>"; };
 		2AF3F12A30802573B375B357 /* PreviewQuality.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PreviewQuality.swift; sourceTree = "<group>"; };
 		2B6CE9B5EA3BFA2DA857A28A /* CinematicDynamics.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CinematicDynamics.swift; sourceTree = "<group>"; };
 		2BA38B1901FAB0329B6D0FE2 /* ExportProgressTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ExportProgressTests.swift; sourceTree = "<group>"; };
@@ -195,8 +199,10 @@
 		A516C3B1E61AB11B92AEC8C0 /* SwiftCut-Bridging-Header.h */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.h; path = "SwiftCut-Bridging-Header.h"; sourceTree = "<group>"; };
 		A88C9A98E1E08F55B21FC50E /* VideoGeometry.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = VideoGeometry.swift; sourceTree = "<group>"; };
 		AEF7DF648EB3AFBBE430EA9C /* ExportPresetEditor.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ExportPresetEditor.swift; sourceTree = "<group>"; };
+		B080E6144DD620A2D2A9B0E4 /* ScopesTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ScopesTests.swift; sourceTree = "<group>"; };
 		B3EC3CFD54129F7418FC4E13 /* ContentView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ContentView.swift; sourceTree = "<group>"; };
 		B44A3E2840BBBDC47FCC8C02 /* MonitorVolume.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MonitorVolume.swift; sourceTree = "<group>"; };
+		B5FFCE417F06271F4BEC26A2 /* ScopesPanel.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ScopesPanel.swift; sourceTree = "<group>"; };
 		B651D74432C531DB3E5324CA /* NewSourceVideoTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NewSourceVideoTests.swift; sourceTree = "<group>"; };
 		B99F134539B4E6DD96C08B0C /* Transcoder.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Transcoder.swift; sourceTree = "<group>"; };
 		BA6A047EA5580454964B1DEE /* ProjectDocument.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ProjectDocument.swift; sourceTree = "<group>"; };
@@ -254,6 +260,7 @@
 				092144C1F403DD724F9702DF /* NewSourceSheet.swift */,
 				38E66891ED766DEF4BEBB591 /* PlayerView.swift */,
 				F11F07F1DB6E07958D961C94 /* ProjectWindow.swift */,
+				B5FFCE417F06271F4BEC26A2 /* ScopesPanel.swift */,
 				7F10D6BDDE728E696D9AF2E1 /* SettingsView.swift */,
 				1AF55AE9F9B242FA2BCDBFA9 /* SidebarView.swift */,
 				5E6048C278CD140A1A244362 /* SpaceBarPlayPause.swift */,
@@ -362,6 +369,7 @@
 				B651D74432C531DB3E5324CA /* NewSourceVideoTests.swift */,
 				D7F3715A04C3D53830734460 /* PreviewQualityTests.swift */,
 				C4FA5E592EA1EF7C0D901CCF /* RawImportTests.swift */,
+				B080E6144DD620A2D2A9B0E4 /* ScopesTests.swift */,
 				0A5FD17A6E03B6BEAC76E60C /* SharpenControlTests.swift */,
 				6B8C6722F9612990561D8403 /* SpaceBarTests.swift */,
 				8550F421DB4DC1A72E2480DC /* SwiftCutTests.swift */,
@@ -402,6 +410,7 @@
 				F822C58EA1928556D9E51BE2 /* Loudness.swift */,
 				D2B86064BFE3B60B8354AD47 /* MediaLoader.swift */,
 				B44A3E2840BBBDC47FCC8C02 /* MonitorVolume.swift */,
+				2AD887DFA085EA57FC9A5570 /* Scopes.swift */,
 				25E508091518B2278CC00981 /* SuperResolutionModel.swift */,
 				98D26E836A47C1458F63697C /* TimelineAudio.swift */,
 				B99F134539B4E6DD96C08B0C /* Transcoder.swift */,
@@ -554,6 +563,8 @@
 				367783B9540AE9592D846246 /* ProjectStore+ImageSequences.swift in Sources */,
 				2C4DD0AA8CB8CE4367772C0C /* ProjectStore.swift in Sources */,
 				F385E1AF22D7DF816AC40295 /* ProjectWindow.swift in Sources */,
+				D6532EDE91E9F5EC0ECBDBCD /* Scopes.swift in Sources */,
+				E2C334F9AD211E7E0F05E89D /* ScopesPanel.swift in Sources */,
 				9FB0DB049DC2E607A70411CC /* SettingsView.swift in Sources */,
 				175DEDF0AC9332B4F99788AD /* SidebarView.swift in Sources */,
 				92559378592C017AEEC38BA0 /* SpaceBarPlayPause.swift in Sources */,
@@ -601,6 +612,7 @@
 				5BE786EEDC40AEDCE37F5C4F /* NewSourceVideoTests.swift in Sources */,
 				35A53A873A5C28B063223F9D /* PreviewQualityTests.swift in Sources */,
 				88DC1B121529742772EC0AD6 /* RawImportTests.swift in Sources */,
+				A90F394154507E09067A11EF /* ScopesTests.swift in Sources */,
 				47E9C32252AD3E6C17FA5720 /* SharpenControlTests.swift in Sources */,
 				325B9222CEAE651D233D9E46 /* SpaceBarTests.swift in Sources */,
 				52406DC514B8FDF95954FDAE /* SwiftCutTests.swift in Sources */,

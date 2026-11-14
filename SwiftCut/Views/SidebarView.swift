@@ -55,14 +55,18 @@ struct SidebarView: View {
                     .allowsHitTesting(false)
             }
         }
-        .safeAreaInset(edge: .bottom) {
-            if !store.missingClips.isEmpty {
-                MissingVideosBanner()
-            } else if store.clips.isEmpty {
-                Text("Drop videos here")
-                    .font(.callout)
-                    .foregroundStyle(.secondary)
-                    .padding()
+        .safeAreaInset(edge: .bottom, spacing: 0) {
+            VStack(spacing: 0) {
+                if !store.missingClips.isEmpty {
+                    MissingVideosBanner()
+                } else if store.clips.isEmpty {
+                    Text("Drop videos here")
+                        .font(.callout)
+                        .foregroundStyle(.secondary)
+                        .padding()
+                }
+                // Pinned to the bottom: the scopes, and the bar that shows and hides them.
+                ScopesArea()
             }
         }
         .toolbar {
@@ -120,6 +124,10 @@ struct SidebarView: View {
                     collapsed.remove(subclip.sourceID)
                     store.selection = [.clip(subclip.sourceID)]
                 }
+            }
+            if clips.count == 1, subclips.isEmpty, let clip = clips.first, clip.imageSequence != nil {
+                Button("Save Video As…", systemImage: "square.and.arrow.down") { store.saveSequenceVideo(clip) }
+                    .disabled(!clip.isLoaded || clip.sequenceProgress != nil)
             }
             Button("Show in Finder", systemImage: "folder") {
                 let urls = clips.flatMap(\.finderURLs) + subclips.flatMap { store.clip(for: $0.sourceID)?.finderURLs ?? [] }

@@ -61,6 +61,13 @@ final class Clip: Identifiable {
     var encodedSize: CGSize = .zero
     var pixelAspectRatio: CGSize?
     var colorSpace: String?
+    /// The color details from the file (File section). `nil` when the file doesn't say.
+    var colorPrimaries: String?
+    var transferFunction: String?
+    var colorMatrix: String?
+    var bitDepth: Int?
+    /// Full range (0–255) rather than video range (16–235), for YCbCr video.
+    var isFullRange: Bool?
     var videoBitRate: Float?
     var audioCodec: String?
     var audioSampleRate: Double?

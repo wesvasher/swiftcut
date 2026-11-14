@@ -3,6 +3,7 @@ import SwiftUI
 /// Right-hand panel for a source video or subclip: file and format details, plus effects.
 /// Laid out compactly (like Finder's Get Info) so most clips fit without scrolling.
 struct ClipInspectorView: View {
+    @Environment(ProjectStore.self) private var store
     /// The source video (for a subclip, the video it comes from).
     @Bindable var clip: Clip
     var subclip: Subclip? = nil
@@ -89,6 +90,12 @@ struct ClipInspectorView: View {
                         .truncationMode(.middle)
                         .help("Show in Finder: \(shown.path(percentEncoded: false))")
                     }
+                    if clip.imageSequence != nil {
+                        sequenceVideoRows
+                    }
+                    if clip.hasVideo, clip.isLoaded {
+                        colorRows
+                    }
                 }
 
                 if clip.hasVideo {
@@ -105,7 +112,6 @@ struct ClipInspectorView: View {
                         if let par = clip.pixelAspectRatio, par.width != par.height {
                             InspectorRow("Pixel Aspect", "\(Int(par.width)):\(Int(par.height))")
                         }
-                        InspectorRow("Color", clip.colorSpace)
                         InspectorRow("Data Rate", clip.videoBitRate.map(bitRate))
                         if clip.canEnhance {
                             FrameRows(clip: clip)
@@ -157,6 +163,35 @@ struct ClipInspectorView: View {
                     GradeSection(clip: clip, controller: controller)
                 }
         }
+    }
+
+    /// For an image sequence, the video SwiftCut made from the images, and saving it.
+    @ViewBuilder
+    private var sequenceVideoRows: some View {
+        GridRow {
+            Divider().gridCellColumns(2)
+        }
+        InspectorRow("Video", [clip.videoCodec, clip.bitDepth.map { "\($0)-bit" }].compactMap { $0 }.joined(separator: " · "))
+        InspectorRow("Video Size", clip.isLoaded ? clip.fileSize.formatted(.byteCount(style: .file)) : nil)
+        GridRow {
+            Color.clear.gridCellUnsizedAxes([.horizontal, .vertical])
+            Button("Save Video As…", systemImage: "square.and.arrow.down") { store.saveSequenceVideo(clip) }
+                .disabled(!clip.isLoaded || clip.sequenceProgress != nil)
+                .help("Save the video SwiftCut made from the images, exactly as it is: the best quality there is, for other apps. Effects, color, and marks aren't in it; New Source Video bakes those in.")
+        }
+    }
+
+    /// What the file says about its color: primaries, transfer curve, matrix, bit depth, and range.
+    @ViewBuilder
+    private var colorRows: some View {
+        GridRow {
+            Divider().gridCellColumns(2)
+        }
+        InspectorRow("Color Space", clip.colorPrimaries)
+        InspectorRow("Transfer", clip.transferFunction)
+        InspectorRow("Matrix", clip.colorMatrix)
+        InspectorRow("Bit Depth", clip.bitDepth.map { "\($0)-bit" })
+        InspectorRow("Range", clip.isFullRange.map { $0 ? "Full (0–255)" : "Video (16–235)" })
     }
 
     /// Frame timing: turning interlaced fields into frames.

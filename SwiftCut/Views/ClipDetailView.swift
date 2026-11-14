@@ -75,6 +75,7 @@ struct ClipDetailView: View {
             controller.load(clip, subclip: subclip)
             pan = .zero
             let controller = controller, title = subclip?.name ?? clip.name
+            store.setScopeSource(.init(owner: sourceID, player: controller.player))
             store.setFullScreenSource(.init(owner: sourceID) {
                 FullScreenPlayer.present(player: controller.player, title: title) {
                     controller.play()
@@ -120,6 +121,7 @@ struct ClipDetailView: View {
             keyMonitor.stop()
             controller.pause()
             store.clearFullScreenSource(owner: sourceID)
+            store.clearScopeSource(owner: sourceID)
         }
     }
 }

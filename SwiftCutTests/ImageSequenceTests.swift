@@ -390,6 +390,27 @@ struct ImageSequenceTests {
         store.removeClips([ready.id])
     }
 
+    @Test @MainActor func saveVideoAsCopiesItExactly() async throws {
+        let (dir, _) = try Self.folder(count: 3)
+        let store = ProjectStore(exporter: ExportManager.test("ImageSequenceTests"))
+        let imported = try #require(store.importImages(folders: [dir], images: [], asSequence: true).first)
+        try await Self.waitUntil { store.clip(for: imported.id)?.isLoaded == true }
+        let clip = try #require(store.clip(for: imported.id))
+        #expect(ProjectStore.sequenceVideoName(clip) == "Shots (ProRes 422 HQ).mov")
+
+        let destination = try TestVideo.tempDirectory().appending(path: "Saved.mov")
+        try Data("old".utf8).write(to: destination)
+        try ProjectStore.copySequenceVideo(from: clip.url, to: destination)
+        // The very same file, replacing what was there.
+        #expect(try Data(contentsOf: destination) == Data(contentsOf: clip.url))
+        // Saving onto itself leaves it alone.
+        try ProjectStore.copySequenceVideo(from: clip.url, to: clip.url)
+        #expect(FileManager.default.fileExists(atPath: clip.url.path(percentEncoded: false)))
+
+        try? FileManager.default.removeItem(at: clip.url)
+        store.removeClips([clip.id])
+    }
+
     @Test @MainActor func droppingImagesAsks() throws {
         let (dir, urls) = try Self.folder(count: 3)
         let store = ProjectStore(exporter: ExportManager.test("ImageSequenceTests"))
