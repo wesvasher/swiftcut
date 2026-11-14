@@ -49,9 +49,11 @@ nonisolated struct EnhanceSettings: Hashable, Sendable {
     /// Scale, position, and background (Video section), applied last. `nil` when the picture
     /// fills the frame as is.
     var layout: FrameLayout?
+    /// Text notes drawn over the picture, after everything else.
+    var notes: [TextNote] = []
 
     var isActive: Bool {
-        fieldOrder != nil || hasLook || layout != nil
+        fieldOrder != nil || hasLook || layout != nil || !notes.isEmpty
     }
 
     /// Anything "Show Original" can turn off: effects, a LUT, a look, or a grade.
@@ -74,6 +76,8 @@ nonisolated struct EnhanceSettings: Hashable, Sendable {
         copy.grade = hasColor ? ColorGrade() : nil
         // The framing follows live too (`LiveLayout`): only whether there is any counts.
         copy.layout = layout == nil ? nil : FrameLayout(scale: 0.5)
+        // The notes follow live too (`LiveNotes`): only whether there are any counts.
+        copy.notes = notes.isEmpty ? [] : [TextNote(id: UUID(uuidString: "00000000-0000-0000-0000-000000000000")!, start: 0, end: 0)]
         return copy
     }
 
@@ -85,7 +89,7 @@ nonisolated struct EnhanceSettings: Hashable, Sendable {
     /// The same settings with the Effects section turned off, for "Show Original". The framing
     /// stays, so the picture doesn't jump.
     var timingOnly: EnhanceSettings {
-        EnhanceSettings(fieldOrder: fieldOrder, layout: layout)
+        EnhanceSettings(fieldOrder: fieldOrder, layout: layout, notes: notes)
     }
 }
 
@@ -178,14 +182,14 @@ nonisolated enum Enhancer {
     /// `liveColor` lets the preview change the LUT and grade without rebuilding; exports use the settings'.
     /// `previewDivisor` above 1 works on a smaller picture, for a lighter preview (`PreviewQuality`).
     static func makePlayable(url: URL, settings: EnhanceSettings, liveColor: LiveColor? = nil,
-                             liveLayout: LiveLayout? = nil, previewDivisor: Int = 1)
+                             liveLayout: LiveLayout? = nil, liveNotes: LiveNotes? = nil, previewDivisor: Int = 1)
         async throws -> (asset: AVAsset, videoComposition: AVVideoComposition?) {
         let source = AVURLAsset(url: url)
         guard settings.isActive else { return (source, nil) }
         try await checkModel(for: source, settings: settings)
         guard settings.denoiseStrength != nil else {
             return (source, try await videoComposition(for: source, settings: settings, liveColor: liveColor,
-                                                       liveLayout: liveLayout, previewDivisor: previewDivisor))
+                                                       liveLayout: liveLayout, liveNotes: liveNotes, previewDivisor: previewDivisor))
         }
 
         guard let video = try await source.loadTracks(withMediaType: .video).first else { return (source, nil) }
@@ -222,14 +226,15 @@ nonisolated enum Enhancer {
         let videoComposition = makeVideoComposition(
             settings: settings, duration: duration, sourceFrameDuration: step,
             mainTrack: main.trackID, neighborTracks: neighbors, displaySize: geometry.displaySize,
-            liveColor: liveColor, liveLayout: liveLayout, previewDivisor: previewDivisor
+            liveColor: liveColor, liveLayout: liveLayout, liveNotes: liveNotes, previewDivisor: previewDivisor
         )
         return (composition, videoComposition)
     }
 
     /// A video composition for `asset` without neighbor tracks (no noise reduction).
     static func videoComposition(for asset: AVAsset, settings: EnhanceSettings, liveColor: LiveColor? = nil,
-                                 liveLayout: LiveLayout? = nil, previewDivisor: Int = 1) async throws -> AVVideoComposition? {
+                                 liveLayout: LiveLayout? = nil, liveNotes: LiveNotes? = nil,
+                                 previewDivisor: Int = 1) async throws -> AVVideoComposition? {
         guard settings.isActive, let video = try await asset.loadTracks(withMediaType: .video).first else { return nil }
         try await checkModel(for: asset, settings: settings)
         var settings = settings
@@ -240,7 +245,7 @@ nonisolated enum Enhancer {
             sourceFrameDuration: try await frameDuration(of: video),
             mainTrack: video.trackID, neighborTracks: [:],
             displaySize: try await VideoGeometry.load(video).displaySize,
-            liveColor: liveColor, liveLayout: liveLayout, previewDivisor: previewDivisor
+            liveColor: liveColor, liveLayout: liveLayout, liveNotes: liveNotes, previewDivisor: previewDivisor
         )
     }
 
@@ -257,7 +262,7 @@ nonisolated enum Enhancer {
     private static func makeVideoComposition(
         settings: EnhanceSettings, duration: CMTime, sourceFrameDuration: CMTime,
         mainTrack: CMPersistentTrackID, neighborTracks: [Int: CMPersistentTrackID], displaySize: CGSize,
-        liveColor: LiveColor?, liveLayout: LiveLayout?, previewDivisor: Int
+        liveColor: LiveColor?, liveLayout: LiveLayout?, liveNotes: LiveNotes? = nil, previewDivisor: Int
     ) -> AVVideoComposition {
         let full = evenSize(displaySize)
         let display = previewDivisor > 1
@@ -271,7 +276,8 @@ nonisolated enum Enhancer {
             sourceFrameDuration: sourceFrameDuration, outputFrameDuration: outputFrameDuration,
             displaySize: display, previewScale: display.height / full.height,
             color: settings.colorLook.map { liveColor ?? LiveColor($0) },
-            layout: settings.layout.map { liveLayout ?? LiveLayout($0) }
+            layout: settings.layout.map { liveLayout ?? LiveLayout($0) },
+            notes: settings.notes.isEmpty ? nil : (liveNotes ?? LiveNotes(settings.notes))
         )
         return AVVideoComposition(configuration: .init(
             customVideoCompositorClass: EnhanceCompositor.self,
@@ -309,12 +315,18 @@ nonisolated final class EnhanceInstruction: NSObject, AVVideoCompositionInstruct
     let color: LiveColor?
     /// The scale, position, and background, read for every frame. `nil` when untouched.
     let layout: LiveLayout?
+    /// The text notes, read for every frame. `nil` when there are none.
+    let notes: LiveNotes?
+    /// Where `timeRange` starts in the source video (notes are timed in source seconds).
+    let sourceStart: CMTime
 
     init(timeRange: CMTimeRange, settings: EnhanceSettings, mainTrack: CMPersistentTrackID,
          neighborTracks: [Int: CMPersistentTrackID], sourceFrameDuration: CMTime,
          outputFrameDuration: CMTime, displaySize: CGSize, previewScale: CGFloat = 1,
-         color: LiveColor? = nil, layout: LiveLayout? = nil) {
+         color: LiveColor? = nil, layout: LiveLayout? = nil, notes: LiveNotes? = nil, sourceStart: CMTime = .zero) {
         self.previewScale = previewScale
+        self.notes = notes
+        self.sourceStart = sourceStart
         self.color = color
         self.layout = layout
         self.timeRange = timeRange
@@ -498,9 +510,9 @@ nonisolated final class EnhancePipeline {
         if scaler != nil {
             picture = try upscale(picture, time: time, isContinuous: isContinuous)
         }
-        if settings.sharpen > 0 || settings.grain != nil || instruction.color != nil || instruction.layout != nil {
-            // The output time picks the grain pattern: each frame (and field) its own, the same every time.
-            try finish(picture, into: output, frame: Int((time.seconds * 1000).rounded()))
+        if settings.sharpen > 0 || settings.grain != nil || instruction.color != nil || instruction.layout != nil
+            || instruction.notes != nil {
+            try finish(picture, into: output, time: time)
         } else {
             try copy(picture, into: output)
         }
@@ -606,7 +618,9 @@ nonisolated final class EnhancePipeline {
     // MARK: Sharpening and output
 
     /// Color LUT, grade, sharpening, film grain, then the scale and position, with Core Image.
-    private func finish(_ picture: CVPixelBuffer, into output: CVPixelBuffer, frame: Int) throws {
+    private func finish(_ picture: CVPixelBuffer, into output: CVPixelBuffer, time: CMTime) throws {
+        // The output time picks the grain pattern: each frame (and field) its own, the same every time.
+        let frame = Int((time.seconds * 1000).rounded())
         if scratch == nil {
             scratch = try Self.buffer(from: Self.pool(width: CVPixelBufferGetWidth(output), height: CVPixelBufferGetHeight(output),
                                                       format: kCVPixelFormatType_32BGRA))
@@ -641,6 +655,11 @@ nonisolated final class EnhancePipeline {
         if let live = instruction.layout {
             image = FrameLayoutStage.apply(image.cropped(to: original.extent), layout: live.value,
                                            frame: original.extent, checkerboard: live.showsCheckerboard)
+        }
+
+        if let notes = instruction.notes?.value, !notes.isEmpty {
+            let sourceTime = (time - instruction.timeRange.start + instruction.sourceStart).seconds
+            image = TextNoteStage.apply(image.cropped(to: original.extent), notes: notes, at: sourceTime, frame: original.extent)
         }
         // Waits for the GPU, so `scratch` is free again for the next frame.
         try Self.render(image.cropped(to: original.extent), bounds: original.extent, context: ciContext, to: output, colorSpace: color)

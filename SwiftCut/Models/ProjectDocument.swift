@@ -95,6 +95,8 @@ nonisolated struct ProjectFile: Codable, Equatable, Sendable {
         var cinematicSound = false
         /// The sidebar folder it's in.
         var folderID: UUID?
+        /// Text notes; `nil` when there are none.
+        var notes: [TextNote]?
         /// Scale, position, and background; `nil` when untouched.
         var layout: FrameLayout?
         /// The images and settings, for a source video made from images. `path` is then the
@@ -141,6 +143,7 @@ nonisolated struct ProjectFile: Codable, Equatable, Sendable {
             volume = try? c.decodeIfPresent(VolumeEnvelope.self, forKey: .volume)
             cinematicSound = (try? c.decodeIfPresent(Bool.self, forKey: .cinematicSound)) ?? false
             folderID = try? c.decodeIfPresent(UUID.self, forKey: .folderID)
+            notes = try? c.decodeIfPresent([TextNote].self, forKey: .notes)
             layout = try? c.decodeIfPresent(FrameLayout.self, forKey: .layout)
             imageSequence = try? c.decodeIfPresent(ImageSequence.self, forKey: .imageSequence)
         }

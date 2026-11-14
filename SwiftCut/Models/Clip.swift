@@ -126,6 +126,8 @@ final class Clip: Identifiable {
 
     /// Scale, position, and background from the Video section, applied after everything else.
     var layout = FrameLayout()
+    /// Text notes over the picture, each from its in point to its out point (source seconds).
+    var notes: [TextNote] = []
 
     /// The chosen LUT, if it's still in the library.
     var lut: ColorLUT? { LUTLibrary.shared.lut(id: lutID) }
@@ -162,7 +164,8 @@ final class Clip: Identifiable {
             look: canEnhance && lookEnabled ? look.map { AppliedLUT(lut: $0, intensity: Float(lookIntensity)) } : nil,
             grade: canEnhance && !grade.isIdentity ? grade : nil,
             // Also for transparent video at full size, so the background shows through it.
-            layout: canEnhance && (!layout.isIdentity || hasAlpha) ? layout : nil
+            layout: canEnhance && (!layout.isIdentity || hasAlpha) ? layout : nil,
+            notes: canEnhance ? notes : []
         )
     }
 
@@ -329,6 +332,7 @@ final class Clip: Identifiable {
         r.volume = volume.isEmpty ? nil : volume
         r.cinematicSound = isCinematicSound
         r.folderID = folderID
+        r.notes = notes.isEmpty ? nil : notes
         r.layout = layout == FrameLayout() ? nil : layout
         r.imageSequence = imageSequence
         return r
@@ -359,6 +363,8 @@ final class Clip: Identifiable {
         if self.volume != volume { self.volume = volume }
         if isCinematicSound != r.cinematicSound { isCinematicSound = r.cinematicSound }
         if folderID != r.folderID { folderID = r.folderID }
+        let notes = r.notes ?? []
+        if self.notes != notes { self.notes = notes }
         let layout = r.layout ?? FrameLayout()
         if self.layout != layout { self.layout = layout }
         if imageSequence != r.imageSequence { imageSequence = r.imageSequence }

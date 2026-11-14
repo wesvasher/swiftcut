@@ -129,7 +129,9 @@ enum CompositionBuilder {
                         neighborTracks: neighbors, sourceFrameDuration: step, outputFrameDuration: outputStep,
                         displaySize: display, previewScale: display.height / full.height,
                         color: effects.colorLook.map { LiveColor($0) },
-                        layout: effects.layout.map { LiveLayout($0) }
+                        layout: effects.layout.map { LiveLayout($0) },
+                        notes: effects.notes.isEmpty ? nil : LiveNotes(effects.notes),
+                        sourceStart: range.start
                     )
                     // The effects output the corrected picture (shape fixed, maybe upscaled), upright.
                     pictureSize = Enhancer.outputSize(displaySize: display, upscale: effects.upscale)

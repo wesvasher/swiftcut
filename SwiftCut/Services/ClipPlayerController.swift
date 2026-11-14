@@ -115,6 +115,10 @@ final class ClipPlayerController {
     let liveColor = LiveColor()
     /// The scale, position, and background the preview shows, also changed in place.
     let liveLayout = LiveLayout(showsCheckerboard: true)
+    /// The text notes the preview shows, also changed in place (while typing or dragging them).
+    let liveNotes = LiveNotes()
+    /// The note last clicked, edited in the inspector's Notes section.
+    var selectedNote: UUID?
     /// The preview with effects, and the same without the Effects section (for "Show Original").
     @ObservationIgnored private var effectsItem: AVPlayerItem?
     @ObservationIgnored private var originalItem: AVPlayerItem?
@@ -137,6 +141,7 @@ final class ClipPlayerController {
             guard subclip?.id != self.subclip?.id else { return }
             self.subclip = subclip
             selectedKeyframe = nil
+            selectedNote = nil
             updateVolume()
             pause()
             seek(to: subclip?.start ?? 0)
@@ -145,6 +150,7 @@ final class ClipPlayerController {
         self.subclip = subclip
         self.clip = clip
         selectedKeyframe = nil
+        selectedNote = nil
         pause()
         let item = AVPlayerItem(url: clip.url)
         updateVolume()
@@ -173,16 +179,17 @@ final class ClipPlayerController {
         let settings = clip.enhanceSettings
         liveColor.value = settings.colorLook ?? ColorLook()
         liveLayout.value = settings.layout ?? FrameLayout()
+        liveNotes.value = settings.notes
         let divisor = settings.isActive ? previewQuality.divisor : 1
         guard settings.structure != appliedSettings || divisor != appliedDivisor else { return }
         do {
             let item = try await Self.makeItem(url: clip.url, settings: settings, liveColor: liveColor,
-                                               liveLayout: liveLayout, previewDivisor: divisor)
+                                               liveLayout: liveLayout, liveNotes: liveNotes, previewDivisor: divisor)
             // The comparison version keeps Timing (deinterlace) and the framing, so both play at the
             // same frame rate and the picture stays put.
             let original = settings.hasLook
                 ? try await Self.makeItem(url: clip.url, settings: settings.timingOnly, liveLayout: liveLayout,
-                                          previewDivisor: divisor) : nil
+                                          liveNotes: liveNotes, previewDivisor: divisor) : nil
             guard self.clip?.id == clip.id, !Task.isCancelled else { return }
             // New versions: frames stored for the old ones no longer apply.
             frameOutputs = [:]
@@ -326,6 +333,16 @@ final class ClipPlayerController {
         if !isPlaying { Self.rerender(item) }
     }
 
+    /// Shows the clip's current notes right away. Adding the first or removing the last still
+    /// needs `applyEffects()`, which the view runs shortly after.
+    func updateNotes() {
+        guard let clip else { return }
+        liveNotes.value = clip.enhanceSettings.notes
+        guard !appliedSettings.notes.isEmpty, let item = player.currentItem else { return }
+        storedFrames[ObjectIdentifier(item)] = nil
+        if !isPlaying { Self.rerender(item) }
+    }
+
     /// Draws the paused frame again so it shows the current color.
     private func redrawFrame() {
         guard appliedSettings.colorLook != nil, let item = effectsItem else { return }
@@ -449,9 +466,10 @@ final class ClipPlayerController {
     }
 
     private static func makeItem(url: URL, settings: EnhanceSettings, liveColor: LiveColor? = nil,
-                                 liveLayout: LiveLayout? = nil, previewDivisor: Int = 1) async throws -> AVPlayerItem {
+                                 liveLayout: LiveLayout? = nil, liveNotes: LiveNotes? = nil,
+                                 previewDivisor: Int = 1) async throws -> AVPlayerItem {
         let playable = try await Enhancer.makePlayable(url: url, settings: settings, liveColor: liveColor,
-                                                       liveLayout: liveLayout, previewDivisor: previewDivisor)
+                                                       liveLayout: liveLayout, liveNotes: liveNotes, previewDivisor: previewDivisor)
         let item = AVPlayerItem(asset: playable.asset)
         item.videoComposition = playable.videoComposition
         return item
@@ -480,7 +498,8 @@ final class ClipPlayerController {
         let original = item === originalItem && item !== effectsItem
         let settings = original ? clip.enhanceSettings.timingOnly : clip.enhanceSettings
         let playable = try await Enhancer.makePlayable(url: clip.url, settings: settings,
-                                                       liveColor: original ? nil : liveColor, liveLayout: liveLayout)
+                                                       liveColor: original ? nil : liveColor, liveLayout: liveLayout,
+                                                       liveNotes: liveNotes)
         return try await FrameClipboard.frame(of: playable.asset, videoComposition: playable.videoComposition, at: time)
     }
 

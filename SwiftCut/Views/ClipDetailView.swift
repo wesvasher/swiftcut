@@ -87,6 +87,7 @@ struct ClipDetailView: View {
         .onChange(of: subclip?.volume ?? clip.volume) { controller.updateVolume() }
         .onChange(of: clip.isCinematicSound) { controller.updateVolume() }
         .onChange(of: clip.enhanceSettings.layout) { controller.updateLayout() }
+        .onChange(of: clip.notes) { controller.updateNotes() }
         .onChange(of: clip.showCaptions) {
             Task { await controller.updateCaptions() }
         }
@@ -591,20 +592,32 @@ private struct Scrubber: View {
         }
     }
 
+    /// Space between the notes lane and the filmstrip.
+    private let notesGap: CGFloat = 3
+    /// The notes lane shows for pictures (notes are drawn on them).
+    private var showsNotes: Bool { clip.canEnhance }
+    private var notesSpace: CGFloat { showsNotes ? NotesLane.height + notesGap : 0 }
+
     private var scroller: some View {
         ScrollView(.horizontal) {
-            strip
-                .frame(width: contentWidth, height: height)
-                .coordinateSpace(.named("scrubber"))
-                // Room for the playhead to stick out above and below.
-                .padding(.vertical, 4)
+            VStack(alignment: .leading, spacing: notesGap) {
+                // Text notes, above the filmstrip, zooming and scrolling with it.
+                if showsNotes {
+                    NotesLane(clip: clip, controller: controller, contentWidth: contentWidth, duration: duration)
+                }
+                strip
+                    .frame(width: contentWidth, height: height)
+                    .coordinateSpace(.named("scrubber"))
+            }
+            // Room for the playhead to stick out above and below.
+            .padding(.vertical, 4)
         }
         .scrollIndicators(.never)
         .scrollDisabled(zoom <= 1)
         .scrollPosition($scrollPosition)
         .onScrollGeometryChange(for: CGFloat.self) { $0.contentOffset.x } action: { _, offset in scrollX = offset }
         .onGeometryChange(for: CGFloat.self) { $0.size.width } action: { viewWidth = $0 }
-        .frame(height: height + 8)
+        .frame(height: height + notesSpace + 8)
         .padding(.vertical, -4)
         .simultaneousGesture(
             MagnifyGesture()

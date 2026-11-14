@@ -158,6 +158,9 @@ struct ClipInspectorView: View {
                     effects
                     if clip.canEnhance {
                         BackgroundSection(clip: clip)
+                        if let controller {
+                            NotesSection(clip: clip, controller: controller)
+                        }
                     }
                     color
                     GradeSection(clip: clip, controller: controller)
