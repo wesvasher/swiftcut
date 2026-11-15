@@ -73,7 +73,7 @@ struct DetailView: View {
         Group {
             if store.isTimelineSelected {
                 // Its own player and playhead for each timeline.
-                TimelineDetailView()
+                TimelineDetailView(timelineID: store.activeTimeline.id)
                     .id(store.activeTimeline.id)
             } else if let (clip, subclip) = store.singleSelectedMedia {
                 // One view for a source and its subclips, so switching between them keeps the player.

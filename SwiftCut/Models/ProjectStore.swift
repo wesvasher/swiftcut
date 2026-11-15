@@ -23,6 +23,8 @@ final class ProjectStore {
     var timelines: [ProjectTimeline] = [ProjectTimeline()]
     /// The timeline the timeline view shows and edits (when the timeline is selected).
     var activeTimelineID: UUID?
+    /// Where each timeline's view was left (playhead, zoom, scroll), so going back finds it as it was.
+    @ObservationIgnored var timelineViewStates: [UUID: TimelineViewState] = [:]
 
     /// Where the open timeline is in `timelines`.
     private var activeIndex: Int {

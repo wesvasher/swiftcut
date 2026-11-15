@@ -169,7 +169,7 @@ struct PlayerViewTests {
         let clip = try #require(store.importFiles([url]).first)
         store.addToTimeline([clip])
 
-        for screen in [AnyView(ClipDetailView(clip: clip)), AnyView(TimelineDetailView())] {
+        for screen in [AnyView(ClipDetailView(clip: clip)), AnyView(TimelineDetailView(timelineID: store.activeTimeline.id))] {
             let host = NSHostingView(rootView: screen.environment(store).environment(store.exporter))
             host.frame = CGRect(x: 0, y: 0, width: 900, height: 600)
             host.layoutSubtreeIfNeeded()

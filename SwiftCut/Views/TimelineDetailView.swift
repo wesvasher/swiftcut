@@ -3,6 +3,8 @@ import SwiftUI
 
 struct TimelineDetailView: View {
     @Environment(ProjectStore.self) private var store
+    /// The timeline shown, to remember where its view was left.
+    let timelineID: UUID
     @State private var isShowingInspector = true
     /// Shared by the preview and the timeline strip, which draws the playhead.
     @State private var playback = TimelinePlayback()
@@ -21,13 +23,20 @@ struct TimelineDetailView: View {
 
     var body: some View {
         VStack(spacing: 0) {
-            TimelinePreview(playback: playback)
+            TimelinePreview(playback: playback, timelineID: timelineID)
             Divider()
-            TimelineEditorView(playback: playback)
+            TimelineEditorView(playback: playback, timelineID: timelineID)
                 .frame(height: 180)
         }
         .spaceBarPlaysAndPauses { playback.togglePlayPause() }
-        .onAppear { playback.audio = store.timelineAudio }
+        .onAppear {
+            playback.audio = store.timelineAudio
+            // Back where the playhead was left; the player seeks there once it's built.
+            playback.restore(to: store.timelineViewStates[timelineID]?.time ?? 0)
+        }
+        .onDisappear {
+            store.timelineViewStates[timelineID, default: TimelineViewState()].time = playback.time
+        }
         // Measure each clip's loudness, and keep the player's volume changes up to date.
         .task(id: store.loudnessKeys) { await store.measureTimelineLoudness() }
         .onChange(of: store.timelineAudioSpans, initial: true) { _, spans in store.timelineAudio.spans = spans }
@@ -54,6 +63,7 @@ struct TimelineDetailView: View {
 private struct TimelinePreview: View {
     @Environment(ProjectStore.self) private var store
     let playback: TimelinePlayback
+    let timelineID: UUID
     private var player: AVPlayer { playback.player }
     @State private var buildError: String?
     @State private var sourceID = UUID()
@@ -132,7 +142,15 @@ private struct TimelinePreview: View {
                 })
             }
         }
+        .onAppear {
+            if let saved = store.timelineViewStates[timelineID] {
+                zoom = saved.viewerZoom
+                pan = saved.viewerPan
+            }
+        }
         .onDisappear {
+            store.timelineViewStates[timelineID, default: TimelineViewState()].viewerZoom = zoom
+            store.timelineViewStates[timelineID, default: TimelineViewState()].viewerPan = pan
             player.pause()
             store.clearFullScreenSource(owner: sourceID)
             store.clearScopeSource(owner: sourceID)
@@ -194,13 +212,16 @@ private struct TimelinePreview: View {
                                                             audio: store.timelineAudio, previewDivisor: quality.divisor)
             guard !Task.isCancelled else { return }
             builtQuality = quality
-            let resumeAt = player.currentTime()
+            // The first build starts where the playhead was left; later ones stay where it is.
+            let resumeAt = player.currentItem == nil
+                ? CMTime(seconds: playback.time, preferredTimescale: 600)
+                : player.currentTime()
             let item = AVPlayerItem(asset: result.composition)
             item.videoComposition = result.videoComposition
             item.audioMix = result.audioMix
             player.replaceCurrentItem(with: item)
             if resumeAt.seconds < result.duration {
-                await player.seek(to: resumeAt)
+                await player.seek(to: resumeAt, toleranceBefore: .zero, toleranceAfter: .zero)
             }
             buildError = nil
             // Measure the sound ahead of time, so the meters follow scrubbing.
@@ -262,6 +283,11 @@ final class TimelinePlayback {
             player.seek(to: .zero)
         }
         player.play()
+    }
+
+    /// Puts the playhead back where it was left, before the player has anything to play.
+    func restore(to seconds: Double) {
+        time = max(0, seconds)
     }
 
     /// Moves the playhead (pausing playback), for scrubbing.

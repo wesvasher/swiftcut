@@ -8,6 +8,17 @@ struct ProjectTimeline: Identifiable, Equatable {
     var settings = TimelineSettings()
 }
 
+/// Where a timeline's view was left: the playhead, the strip's zoom and scroll, and the viewer's
+/// zoom. Kept while the project is open, not saved.
+struct TimelineViewState: Equatable {
+    var time: Double = 0
+    /// The strip's zoom; `nil` until it's been shown.
+    var pointsPerSecond: Double?
+    var scrollX: CGFloat = 0
+    var viewerZoom = ViewerZoom.fit
+    var viewerPan = CGSize.zero
+}
+
 extension ProjectStore {
     func timeline(for id: UUID) -> ProjectTimeline? {
         timelines.first { $0.id == id }
@@ -66,6 +77,7 @@ extension ProjectStore {
         guard timelines.count > 1, let index = timelines.firstIndex(where: { $0.id == id }) else { return }
         let wasOpen = activeTimeline.id == id
         timelines.remove(at: index)
+        timelineViewStates[id] = nil
         if wasOpen {
             // Open its neighbor instead.
             activeTimelineID = timelines[min(index, timelines.count - 1)].id

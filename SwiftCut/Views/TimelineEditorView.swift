@@ -4,6 +4,8 @@ import SwiftUI
 struct TimelineEditorView: View {
     @Environment(ProjectStore.self) private var store
     let playback: TimelinePlayback
+    /// The timeline shown, to remember its zoom and scroll.
+    let timelineID: UUID
     @State private var pointsPerSecond: Double = 30
     @State private var visibleWidth: CGFloat = 0
     /// How far the strip is scrolled, and its full width, for the navigator.
@@ -82,6 +84,11 @@ struct TimelineEditorView: View {
             }
             .onGeometryChange(for: CGFloat.self) { $0.size.width } action: { visibleWidth = $0 }
             .scrollPosition($scrollPosition)
+            .onAppear(perform: restoreView)
+            .onDisappear {
+                store.timelineViewStates[timelineID, default: TimelineViewState()].pointsPerSecond = pointsPerSecond
+                store.timelineViewStates[timelineID, default: TimelineViewState()].scrollX = scrollX
+            }
             .onScrollGeometryChange(for: [CGFloat].self) { [$0.contentOffset.x, $0.contentSize.width] } action: { _, new in
                 scrollX = new[0]
                 contentWidth = new[1]
@@ -193,6 +200,16 @@ struct TimelineEditorView: View {
     }
 
     // MARK: Zoom
+
+    /// Back to the zoom and scroll the timeline was left at.
+    private func restoreView() {
+        guard let saved = store.timelineViewStates[timelineID], let zoom = saved.pointsPerSecond else { return }
+        pointsPerSecond = zoom
+        // Once the clips are laid out at that zoom, so there's room to scroll to.
+        let x = saved.scrollX
+        guard x > 0 else { return }
+        DispatchQueue.main.async { scrollPosition.scrollTo(x: x) }
+    }
 
     /// How much each click of the zoom buttons changes the zoom.
     private let zoomStep = 1.5
