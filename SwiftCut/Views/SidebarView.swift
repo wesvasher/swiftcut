@@ -11,12 +11,6 @@ struct SidebarView: View {
         @Bindable var store = store
 
         List(selection: $store.selection) {
-            Section("Project") {
-                Label("Timeline", systemImage: "rectangle.split.3x1")
-                    .badge(store.timeline.count)
-                    .tag(SidebarItem.timeline)
-            }
-
             Section("Source Videos") {
                 // Folders (from dropped folders) first, then the clips that aren't in one.
                 ForEach(store.folders(in: nil)) { folder in
@@ -43,6 +37,10 @@ struct SidebarView: View {
                     .padding(4)
                     .allowsHitTesting(false)
             }
+        }
+        // Pinned to the top, so the timelines stay in view while the clips scroll.
+        .safeAreaInset(edge: .top, spacing: 0) {
+            TimelinesPanel()
         }
         .safeAreaInset(edge: .bottom, spacing: 0) {
             VStack(spacing: 0) {
@@ -122,10 +120,8 @@ struct SidebarView: View {
     @ViewBuilder
     private func folderMenu(_ folder: MediaFolder) -> some View {
         let clips = store.allClips(inFolder: folder.id)
-        Button("Add to Timeline", systemImage: "plus.rectangle.on.rectangle") {
-            store.addToTimeline(clips)
-        }
-        .disabled(clips.isEmpty)
+        AddToTimelineMenu(media: clips.map { .clip($0.id) })
+            .disabled(clips.isEmpty)
         Button("Select Clips", systemImage: "checklist") {
             store.selection = Set(clips.map { .clip($0.id) })
         }
@@ -176,9 +172,7 @@ struct SidebarView: View {
             let clips = media.compactMap { if case .clip(let id) = $0 { store.clip(for: id) } else { nil } }
             let subclips = media.compactMap { if case .subclip(let id) = $0 { store.subclip(for: id) } else { nil } }
 
-            Button("Add to Timeline", systemImage: "plus.rectangle.on.rectangle") {
-                store.addToTimeline(media)
-            }
+            AddToTimelineMenu(media: media)
             Menu("Export As") {
                 ExportPresetMenuItems { preset in store.exportMedia(media, as: preset) }
             }

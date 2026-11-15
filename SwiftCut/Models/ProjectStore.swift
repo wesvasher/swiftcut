@@ -19,9 +19,35 @@ final class ProjectStore {
     @ObservationIgnored var folderWatchers: [UUID: FolderWatcher] = [:]
     /// Syncs waiting for files that were still being written to settle.
     @ObservationIgnored var folderRechecks: [UUID: Task<Void, Never>] = [:]
-    var timeline: [TimelineItem] = []
-    /// The timeline's frame size, frame rate, and fit (timeline inspector's Timeline Settings section).
-    var timelineSettings = TimelineSettings()
+    /// The project's timelines, in sidebar order. Always at least one.
+    var timelines: [ProjectTimeline] = [ProjectTimeline()]
+    /// The timeline the timeline view shows and edits (when the timeline is selected).
+    var activeTimelineID: UUID?
+
+    /// Where the open timeline is in `timelines`.
+    private var activeIndex: Int {
+        timelines.firstIndex { $0.id == activeTimelineID } ?? 0
+    }
+
+    var activeTimeline: ProjectTimeline { timelines[activeIndex] }
+
+    /// The open timeline's items.
+    var timeline: [TimelineItem] {
+        get { timelines.isEmpty ? [] : timelines[activeIndex].items }
+        set {
+            if timelines.isEmpty { timelines = [ProjectTimeline()] }
+            timelines[activeIndex].items = newValue
+        }
+    }
+
+    /// The open timeline's frame size, frame rate, and fit (timeline inspector's Timeline Settings section).
+    var timelineSettings: TimelineSettings {
+        get { timelines.isEmpty ? TimelineSettings() : timelines[activeIndex].settings }
+        set {
+            if timelines.isEmpty { timelines = [ProjectTimeline()] }
+            timelines[activeIndex].settings = newValue
+        }
+    }
     var selection: Set<SidebarItem> = []
     /// Selected timeline items: Command-click adds or removes one, Shift-click selects a run.
     var selectedTimelineItemIDs: Set<UUID> = []
@@ -190,14 +216,14 @@ final class ProjectStore {
         let subclipIDs = Set(subclips.filter { ids.contains($0.sourceID) }.map(\.id))
         clips.removeAll { ids.contains($0.id) }
         subclips.removeAll { subclipIDs.contains($0.id) }
-        timeline.removeAll { ids.contains($0.clipID) }
+        for index in timelines.indices { timelines[index].items.removeAll { ids.contains($0.clipID) } }
         pruneSelection()
     }
 
     /// Removes subclips, and the timeline items that use them.
     func removeSubclips(_ ids: Set<UUID>) {
         subclips.removeAll { ids.contains($0.id) }
-        timeline.removeAll { $0.subclipID.map(ids.contains) ?? false }
+        for index in timelines.indices { timelines[index].items.removeAll { $0.subclipID.map(ids.contains) ?? false } }
         pruneSelection()
     }
 
@@ -301,13 +327,16 @@ final class ProjectStore {
 
     /// Everything a project file stores, built from the current state.
     var projectFile: ProjectFile {
-        var file = ProjectFile(
-            clips: clips.map(\.record),
-            subclips: subclips.map(\.record),
-            timeline: timeline.map { .init(id: $0.id, clipID: $0.clipID, subclipID: $0.subclipID,
-                                           audio: $0.audio.isDefault ? nil : $0.audio) }
-        )
-        file.timelineSettings = timelineSettings
+        var file = ProjectFile()
+        file.clips = clips.map(\.record)
+        file.subclips = subclips.map(\.record)
+        file.timelines = timelines.map { timeline in
+            ProjectFile.SavedTimeline(
+                id: timeline.id, name: timeline.name,
+                items: timeline.items.map { .init(id: $0.id, clipID: $0.clipID, subclipID: $0.subclipID,
+                                                  audio: $0.audio.isDefault ? nil : $0.audio) },
+                settings: timeline.settings)
+        }
         file.folders = folders
         return file
     }
@@ -333,11 +362,17 @@ final class ProjectStore {
         }
         if updatedSubclips.map(\.id) != subclips.map(\.id) { subclips = updatedSubclips }
 
-        let items = file.timeline.map {
-            TimelineItem(id: $0.id, clipID: $0.clipID, subclipID: $0.subclipID, audio: $0.audio ?? ItemAudio())
+        var updatedTimelines = file.timelines.map { saved in
+            ProjectTimeline(id: saved.id, name: saved.name,
+                            items: saved.items.map {
+                                TimelineItem(id: $0.id, clipID: $0.clipID, subclipID: $0.subclipID, audio: $0.audio ?? ItemAudio())
+                            },
+                            settings: saved.settings)
         }
-        if items != timeline { timeline = items }
-        if file.timelineSettings != timelineSettings { timelineSettings = file.timelineSettings }
+        if updatedTimelines.isEmpty { updatedTimelines = [ProjectTimeline()] }
+        if updatedTimelines != timelines { timelines = updatedTimelines }
+        // Undo can take away the open timeline: open the first then.
+        if let id = activeTimelineID, !timelines.contains(where: { $0.id == id }) { activeTimelineID = nil }
         if file.folders != folders { folders = file.folders }
 
         pruneSelection()
@@ -350,7 +385,8 @@ final class ProjectStore {
     /// Selects something sensible after opening a project.
     func selectInitialItem() {
         guard selection.isEmpty else { return }
-        if !timeline.isEmpty {
+        if let first = timelines.first(where: { !$0.items.isEmpty }) {
+            activeTimelineID = first.id
             selection = [.timeline]
         } else if let first = clips.first {
             selection = [.clip(first.id)]
@@ -499,7 +535,7 @@ final class ProjectStore {
               let clip = clip(for: timeline[index].clipID) else { return nil }
         let item = timeline[index]
         if let id = item.subclipID, let subclip = subclip(for: id) {
-            let isShared = timeline.contains { $0.id != itemID && $0.subclipID == id }
+            let isShared = timelines.contains { $0.items.contains { $0.id != itemID && $0.subclipID == id } }
             guard isShared else { return subclip }
             let copy = makeSubclip(of: clip, start: subclip.start, end: subclip.end, after: subclip)
             timeline[index].subclipID = copy.id
@@ -825,7 +861,7 @@ final class ProjectStore {
     func exportTimeline(as preset: ExportPreset) {
         Task {
             guard let folder = await exportFolder() else { return }
-            let name = "Timeline \(Date.now.formatted(.dateTime.year().month().day().hour().minute()))"
+            let name = "\(activeTimeline.name) \(Date.now.formatted(.dateTime.year().month().day().hour().minute()))"
                 .replacingOccurrences(of: "/", with: "-")
                 .replacingOccurrences(of: ":", with: ".")
             do {
@@ -835,7 +871,7 @@ final class ProjectStore {
                 timelineExports.removeAll { !$0.isRunning }
                 timelineExports.append(job)
             } catch {
-                exporter.reportFailure(error.localizedDescription, name: "Timeline", preset: preset)
+                exporter.reportFailure(error.localizedDescription, name: activeTimeline.name, preset: preset)
             }
         }
     }

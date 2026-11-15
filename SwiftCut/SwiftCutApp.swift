@@ -44,6 +44,9 @@ struct ProjectCommands: Commands {
             Button("Go to Timeline") { store?.selection = [.timeline] }
                 .keyboardShortcut("1", modifiers: .command)
                 .disabled(store == nil || store?.isTimelineSelected == true)
+            Button("New Timeline") { store?.newTimeline() }
+                .keyboardShortcut("n", modifiers: [.command, .option])
+                .disabled(store == nil)
             Button(store?.sidebarsHidden == true ? "Show Sidebars" : "Hide Sidebars") {
                 withAnimation { store?.sidebarsHidden.toggle() }
             }

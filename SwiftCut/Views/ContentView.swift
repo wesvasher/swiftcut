@@ -72,7 +72,9 @@ struct DetailView: View {
     var body: some View {
         Group {
             if store.isTimelineSelected {
+                // Its own player and playhead for each timeline.
                 TimelineDetailView()
+                    .id(store.activeTimeline.id)
             } else if let (clip, subclip) = store.singleSelectedMedia {
                 // One view for a source and its subclips, so switching between them keeps the player.
                 ClipDetailView(clip: clip, subclip: subclip)
@@ -88,7 +90,7 @@ struct DetailView: View {
 
     private var subtitle: String {
         if store.isTimelineSelected {
-            return "Timeline · \(store.timeline.count) clips · \(store.timelineDuration.timecode)"
+            return "\(store.activeTimeline.name) · \(store.timeline.count) clips · \(store.timelineDuration.timecode)"
         }
         if let (clip, subclip) = store.singleSelectedMedia {
             if let subclip {

@@ -11,15 +11,43 @@ extension UTType {
 /// What a project file stores: the source videos (with their marks and settings),
 /// subclips, and the timeline. Pictures and metadata are read from the videos again on open.
 nonisolated struct ProjectFile: Codable, Equatable, Sendable {
-    /// 2 added subclips; timeline items no longer have their own trims.
-    var version = 2
+    /// 2 added subclips; timeline items no longer have their own trims. 3 added more than one timeline.
+    var version = 3
     var clips: [ClipRecord] = []
     var subclips: [SubclipRecord] = []
-    var timeline: [TimelineRecord] = []
-    /// The timeline's frame size, frame rate, and fit.
-    var timelineSettings = TimelineSettings()
+    /// The project's timelines, in sidebar order. Always at least one.
+    var timelines: [SavedTimeline] = [SavedTimeline()]
     /// Folders in Source Videos (from dropped folders).
     var folders: [MediaFolder] = []
+
+    /// A timeline: its name, items, and settings.
+    struct SavedTimeline: Codable, Equatable, Sendable, Identifiable {
+        var id = UUID()
+        var name = "Timeline"
+        var items: [TimelineRecord] = []
+        /// The timeline's frame size, frame rate, fit, and sound settings.
+        var settings = TimelineSettings()
+    }
+
+    /// The first timeline's items (what files from before version 3 hold).
+    var timeline: [TimelineRecord] {
+        get { timelines.first?.items ?? [] }
+        set { ensureTimeline(); timelines[0].items = newValue }
+    }
+
+    /// The first timeline's settings.
+    var timelineSettings: TimelineSettings {
+        get { timelines.first?.settings ?? TimelineSettings() }
+        set { ensureTimeline(); timelines[0].settings = newValue }
+    }
+
+    private mutating func ensureTimeline() {
+        if timelines.isEmpty { timelines = [SavedTimeline()] }
+    }
+
+    private enum CodingKeys: String, CodingKey {
+        case version, clips, subclips, timelines, timeline, timelineSettings, folders
+    }
 
     init() {}
 
@@ -29,17 +57,33 @@ nonisolated struct ProjectFile: Codable, Equatable, Sendable {
         self.timeline = timeline
     }
 
+    func encode(to encoder: Encoder) throws {
+        var c = encoder.container(keyedBy: CodingKeys.self)
+        try c.encode(version, forKey: .version)
+        try c.encode(clips, forKey: .clips)
+        try c.encode(subclips, forKey: .subclips)
+        try c.encode(timelines, forKey: .timelines)
+        // The first timeline again where older versions of SwiftCut look for it, so they can still open the project.
+        try c.encode(timeline, forKey: .timeline)
+        try c.encode(timelineSettings, forKey: .timelineSettings)
+        try c.encode(folders, forKey: .folders)
+    }
+
     init(from decoder: Decoder) throws {
         let c = try decoder.container(keyedBy: CodingKeys.self)
         clips = try c.decodeIfPresent([ClipRecord].self, forKey: .clips) ?? []
         subclips = try c.decodeIfPresent([SubclipRecord].self, forKey: .subclips) ?? []
-        timelineSettings = try c.decodeIfPresent(TimelineSettings.self, forKey: .timelineSettings) ?? TimelineSettings()
         folders = (try? c.decodeIfPresent([MediaFolder].self, forKey: .folders)) ?? []
+        if let saved = try c.decodeIfPresent([SavedTimeline].self, forKey: .timelines), !saved.isEmpty {
+            timelines = saved
+            return
+        }
+        let settings = try c.decodeIfPresent(TimelineSettings.self, forKey: .timelineSettings) ?? TimelineSettings()
         // Version 1 trimmed each timeline item; those trims become subclips.
         let names = Dictionary(clips.map { ($0.id, URL(filePath: $0.path).deletingPathExtension().lastPathComponent) },
                                uniquingKeysWith: { first, _ in first })
         var counts: [UUID: Int] = [:]
-        timeline = try (c.decodeIfPresent([SavedTimelineItem].self, forKey: .timeline) ?? []).map { saved in
+        let items = try (c.decodeIfPresent([SavedTimelineItem].self, forKey: .timeline) ?? []).map { saved in
             var record = TimelineRecord(id: saved.id, clipID: saved.clipID, subclipID: saved.subclipID, audio: saved.audio)
             let start = saved.trimStart ?? 0
             if record.subclipID == nil, start > 0 || saved.trimEnd != nil {
@@ -52,6 +96,7 @@ nonisolated struct ProjectFile: Codable, Equatable, Sendable {
             }
             return record
         }
+        timelines = [SavedTimeline(items: items, settings: settings)]
     }
 
     /// A timeline item as any version saved it.
