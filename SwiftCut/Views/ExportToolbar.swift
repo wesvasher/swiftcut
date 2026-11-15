@@ -7,6 +7,9 @@ struct ExportToolbar: ToolbarContent {
 
     var body: some ToolbarContent {
         ToolbarItem(placement: .primaryAction) {
+            UndoRedoButtons()
+        }
+        ToolbarItem(placement: .primaryAction) {
             // ⌘F lives on View › Play Full Screen, which works wherever the focus is.
             Button("Play Full Screen", systemImage: "play.rectangle") { store.playFullScreen() }
                 .disabled(store.fullScreenSource == nil)
@@ -195,4 +198,38 @@ private struct ExportJobRow: View {
 
 extension String {
     var abbreviatingWithTilde: String { (self as NSString).abbreviatingWithTildeInPath }
+}
+
+/// Undo and Redo, as Edit › Undo and Redo (⌘Z, ⇧⌘Z) do. Their tooltips say what they'd undo or redo.
+private struct UndoRedoButtons: View {
+    @Environment(\.undoManager) private var undoManager
+    /// Bumped when the undo history changes, so the buttons update.
+    @State private var revision = 0
+
+    var body: some View {
+        let _ = revision
+        ControlGroup {
+            Button("Undo", systemImage: "arrow.uturn.backward") { send("undo:") }
+                .disabled(undoManager?.canUndo != true)
+                .help(title(undoManager?.undoMenuItemTitle, fallback: "Undo") + " (⌘Z)")
+            Button("Redo", systemImage: "arrow.uturn.forward") { send("redo:") }
+                .disabled(undoManager?.canRedo != true)
+                .help(title(undoManager?.redoMenuItemTitle, fallback: "Redo") + " (⇧⌘Z)")
+        }
+        .onReceive(NotificationCenter.default.publisher(for: .NSUndoManagerCheckpoint)) { _ in revision += 1 }
+        .onReceive(NotificationCenter.default.publisher(for: .NSUndoManagerDidUndoChange)) { _ in revision += 1 }
+        .onReceive(NotificationCenter.default.publisher(for: .NSUndoManagerDidRedoChange)) { _ in revision += 1 }
+        .onReceive(NotificationCenter.default.publisher(for: .NSUndoManagerDidCloseUndoGroup)) { _ in revision += 1 }
+    }
+
+    /// Through the responder chain, like the Edit menu, so it undoes typing in a text field too.
+    private func send(_ action: String) {
+        NSApp.sendAction(Selector(action), to: nil, from: nil)
+        revision += 1
+    }
+
+    private func title(_ title: String?, fallback: String) -> String {
+        guard let title, !title.isEmpty else { return fallback }
+        return title
+    }
 }
