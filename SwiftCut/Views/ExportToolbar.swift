@@ -203,33 +203,79 @@ extension String {
 /// Undo and Redo, as Edit › Undo and Redo (⌘Z, ⇧⌘Z) do. Their tooltips say what they'd undo or redo.
 private struct UndoRedoButtons: View {
     @Environment(\.undoManager) private var undoManager
-    /// Bumped when the undo history changes, so the buttons update.
-    @State private var revision = 0
+    @State private var history = UndoHistory()
 
     var body: some View {
-        let _ = revision
         ControlGroup {
             Button("Undo", systemImage: "arrow.uturn.backward") { send("undo:") }
-                .disabled(undoManager?.canUndo != true)
-                .help(title(undoManager?.undoMenuItemTitle, fallback: "Undo") + " (⌘Z)")
+                .disabled(!history.state.canUndo)
+                .help(history.state.undoTitle + " (⌘Z)")
             Button("Redo", systemImage: "arrow.uturn.forward") { send("redo:") }
-                .disabled(undoManager?.canRedo != true)
-                .help(title(undoManager?.redoMenuItemTitle, fallback: "Redo") + " (⇧⌘Z)")
+                .disabled(!history.state.canRedo)
+                .help(history.state.redoTitle + " (⇧⌘Z)")
         }
-        .onReceive(NotificationCenter.default.publisher(for: .NSUndoManagerCheckpoint)) { _ in revision += 1 }
-        .onReceive(NotificationCenter.default.publisher(for: .NSUndoManagerDidUndoChange)) { _ in revision += 1 }
-        .onReceive(NotificationCenter.default.publisher(for: .NSUndoManagerDidRedoChange)) { _ in revision += 1 }
-        .onReceive(NotificationCenter.default.publisher(for: .NSUndoManagerDidCloseUndoGroup)) { _ in revision += 1 }
+        .onAppear { history.follow(undoManager) }
+        .onChange(of: undoManager) { history.follow(undoManager) }
     }
 
     /// Through the responder chain, like the Edit menu, so it undoes typing in a text field too.
     private func send(_ action: String) {
         NSApp.sendAction(Selector(action), to: nil, from: nil)
-        revision += 1
+        history.refresh()
+    }
+}
+
+/// Follows a window's undo history for the Undo and Redo buttons. Listens outside SwiftUI and
+/// changes `state` only when it differs: undo managers post checkpoints on every pass of the
+/// run loop, and handing each one to SwiftUI (with `onReceive`) made its graph grow until the
+/// app crashed.
+@MainActor
+@Observable
+private final class UndoHistory {
+    struct State: Equatable {
+        var canUndo = false
+        var canRedo = false
+        var undoTitle = "Undo"
+        var redoTitle = "Redo"
     }
 
-    private func title(_ title: String?, fallback: String) -> String {
-        guard let title, !title.isEmpty else { return fallback }
-        return title
+    private(set) var state = State()
+    @ObservationIgnored private weak var undoManager: UndoManager?
+    @ObservationIgnored private var observers: [NSObjectProtocol] = []
+
+    func follow(_ undoManager: UndoManager?) {
+        if undoManager === self.undoManager, !observers.isEmpty { return }
+        stop()
+        self.undoManager = undoManager
+        if let undoManager {
+            let names: [Notification.Name] = [.NSUndoManagerCheckpoint, .NSUndoManagerDidCloseUndoGroup,
+                                              .NSUndoManagerDidUndoChange, .NSUndoManagerDidRedoChange]
+            observers = names.map { name in
+                NotificationCenter.default.addObserver(forName: name, object: undoManager, queue: .main) { [weak self] _ in
+                    MainActor.assumeIsolated { self?.refresh() }
+                }
+            }
+        }
+        refresh()
+    }
+
+    func refresh() {
+        var new = State()
+        if let undoManager {
+            new.canUndo = undoManager.canUndo
+            new.canRedo = undoManager.canRedo
+            if !undoManager.undoMenuItemTitle.isEmpty { new.undoTitle = undoManager.undoMenuItemTitle }
+            if !undoManager.redoMenuItemTitle.isEmpty { new.redoTitle = undoManager.redoMenuItemTitle }
+        }
+        if new != state { state = new }
+    }
+
+    private func stop() {
+        for observer in observers { NotificationCenter.default.removeObserver(observer) }
+        observers = []
+    }
+
+    isolated deinit {
+        stop()
     }
 }
